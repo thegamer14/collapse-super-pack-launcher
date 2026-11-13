@@ -256,37 +256,68 @@ function launchScaled(exePath, options = {}) {
 }
 
 /**
- * Starts a game in the display helper's window mode: a plain, optionally sized
- * window. Used when the player asks for the game's own window.
+ * Starts a game through the display helper. Window mode leaves a normal
+ * resizable window; borderless mode strips the frame and fills the requested
+ * size (or the screen).
  */
-function launchWindowed(exePath, options = {}) {
+function launchDisplayHelper(exePath, options, mode) {
+  const cwd = workingDirectory(exePath, options);
   const psArgs = [
     '-NoProfile', '-ExecutionPolicy', 'Bypass',
     '-File', onDisk(path.join(__dirname, '..', 'tools', 'fullscreen-launch.ps1')),
     '-Exe', exePath,
-    '-Mode', 'window',
+    '-Mode', mode,
+    '-WorkingDirectory', cwd,
   ];
   if (options.windowWidth && options.windowHeight) {
-    psArgs.push('-WindowWidth', String(options.windowWidth), '-WindowHeight', String(options.windowHeight));
+    const widthFlag = mode === 'window' ? '-WindowWidth' : '-Width';
+    const heightFlag = mode === 'window' ? '-WindowHeight' : '-Height';
+    psArgs.push(widthFlag, String(options.windowWidth), heightFlag, String(options.windowHeight));
   }
   const args = parseArgs(options.args);
   if (args.length) psArgs.push('-Arguments', args.join(' '));
 
   try {
-    logger.log('starting display helper', { executable: exePath, arguments: psArgs, mode: 'window' });
+    logger.log('starting display helper', { executable: exePath, arguments: psArgs, mode });
     const child = spawn('powershell.exe', psArgs, {
-      cwd: path.dirname(exePath),
-      detached: true,
+      cwd,
+      // PowerShell 5.1 exits immediately when started detached without a
+      // console, before it can run the script. Keep the helper attached; it
+      // still lives independently of the launcher window.
+      detached: false,
       stdio: childStdio(),
       windowsHide: true,
     });
-    attachProcessLogging(child, { kind: 'display-helper', executable: exePath, mode: 'window' });
+    attachProcessLogging(child, { kind: 'display-helper', executable: exePath, mode });
     child.unref();
     return { ok: true, pid: child.pid };
   } catch (error) {
     logger.error('display helper launch threw', { exePath, error: errorDetails(error) });
     return { ok: false, error: error.message };
   }
+}
+
+function launchWindowed(exePath, options = {}) {
+  return launchDisplayHelper(exePath, options, 'window');
+}
+
+function launchBorderless(exePath, options = {}) {
+  return launchDisplayHelper(exePath, options, 'borderless');
+}
+
+/**
+ * Native fullscreen: switch the desktop to the game's own mode and let the
+ * display scale it. This avoids BitBit entirely, which is the reliable path
+ * for the GameHouse engines when their cursor handling fights the sliding
+ * window.
+ */
+function launchFullscreen(exePath, options = {}) {
+  const native = options.native || {};
+  return launchDisplayHelper(exePath, {
+    ...options,
+    windowWidth: native.width || options.nativeWidth || 800,
+    windowHeight: native.height || options.nativeHeight || 600,
+  }, 'fullscreen');
 }
 
 /** Runs a game the way its per-game settings ask for. */
@@ -304,7 +335,10 @@ function launchWithDisplay(exePath, options = {}) {
   if (blocked) return blocked;
 
   const wantsScaled = options.display === 'scaled' || options.display === 'fullscreen';
-  return wantsScaled ? launchScaled(exePath, options) : launchWindowed(exePath, options);
+  if (wantsScaled) return launchScaled(exePath, options);
+  if (options.display === 'native') return launchFullscreen(exePath, options);
+  if (options.display === 'borderless') return launchBorderless(exePath, options);
+  return launchWindowed(exePath, options);
 }
 
 module.exports = { launchExecutable, launchWithDisplay, launchScaled, scalerAvailable };

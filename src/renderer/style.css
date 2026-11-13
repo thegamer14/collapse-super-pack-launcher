@@ -38,8 +38,33 @@ body {
   width: var(--stage-w);
   height: var(--stage-h);
   background: url('../../assets/background.jpg') center / cover no-repeat;
+  background-position: 50% 50%;
   overflow: hidden;
   transform-origin: center center;
+  animation: stage-drift 30s ease-in-out infinite alternate;
+}
+
+/* A slow pool of light over the jungle keeps the board from feeling static
+   without moving the covers themselves. */
+.stage::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 24% 18%, rgba(197, 255, 153, 0.16), transparent 42%);
+  mix-blend-mode: screen;
+  animation: stage-light 16s ease-in-out infinite alternate;
+}
+
+@keyframes stage-drift {
+  from { background-position: 48% 49%; }
+  to { background-position: 52% 51%; }
+}
+
+@keyframes stage-light {
+  from { opacity: 0.4; transform: translate3d(-2%, -1%, 0) scale(1); }
+  to { opacity: 0.8; transform: translate3d(3%, 2%, 0) scale(1.08); }
 }
 
 /* ---------------------------------------------------------------- title */
@@ -52,12 +77,14 @@ body {
   pointer-events: none;
   z-index: 5;
   filter: drop-shadow(0 10px 18px rgba(0, 20, 10, 0.45));
+  animation: title-in 680ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
 .title .word {
   display: block;
   width: 540px;
   height: auto;
+  animation: title-float 7s ease-in-out infinite;
 }
 
 .title .sub {
@@ -65,6 +92,17 @@ body {
   width: 310px;
   height: auto;
   margin: -8px auto 0;
+  animation: title-float 7s ease-in-out -1.4s infinite;
+}
+
+@keyframes title-in {
+  from { opacity: 0; transform: translate(-50%, -42%) scale(0.92); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes title-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 
 /* ----------------------------------------------------------------- grid */
@@ -75,6 +113,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  z-index: 1;
 }
 
 .row {
@@ -123,6 +162,31 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* a quick diagonal sheen when a cover is hovered or focused */
+.face::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -70%;
+  width: 55%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transform: skewX(-18deg);
+  opacity: 0;
+}
+
+.tile:hover .face::after,
+.tile:focus-visible .face::after {
+  animation: cover-shine 650ms ease-out;
+}
+
+@keyframes cover-shine {
+  0% { left: -70%; opacity: 0; }
+  20% { opacity: 0.75; }
+  100% { left: 120%; opacity: 0; }
 }
 
 /* custom games have no cover art: show their name on the box */
@@ -244,6 +308,16 @@ body {
 }
 
 .play:hover { filter: brightness(1.07) saturate(1.05); }
+.tile:hover .play,
+.tile:focus-visible .play {
+  animation: play-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes play-glow {
+  0%, 100% { filter: brightness(1.07) saturate(1.05); }
+  50% { filter: brightness(1.16) saturate(1.12); }
+}
+
 .play:active {
   transform: translateY(3px);
   box-shadow: inset 0 0 0 2px rgba(238, 255, 205, 0.8), inset 0 -6px 10px rgba(16, 56, 4, 0.4), 0 1px 0 #0d2c06, 0 4px 9px rgba(0, 0, 0, 0.4);
@@ -283,6 +357,31 @@ body {
 .codes-btn:hover { filter: brightness(1.13); }
 .codes-btn:active { transform: translateY(2px); }
 .codes-btn:focus-visible { outline: 3px solid #ffe680; outline-offset: 3px; }
+
+/* small key button: license details for a game that ships a serial.txt */
+.license-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 3px solid #5c3b08;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffe99b 0%, #ffd35c 30%, #e8a921 65%, #b9780b 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 249, 214, 0.75),
+    0 3px 0 #4a2d04,
+    0 8px 12px rgba(0, 0, 0, 0.45);
+  color: #3d2600;
+  cursor: pointer;
+  transition: filter 100ms ease, transform 90ms ease;
+}
+
+.license-btn svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
+.license-btn:hover { filter: brightness(1.12); }
+.license-btn:active { transform: translateY(2px); }
+.license-btn:focus-visible { outline: 3px solid #ffe680; outline-offset: 3px; }
 
 /* --------------------------------------------------------------- gears */
 .gear {
@@ -328,6 +427,21 @@ body {
 .no-motion .gear:hover { transform: none; }
 .no-motion .tile-gear:hover { transform: none; }
 
+/* The launcher's Animations switch wins over every decorative effect. */
+body.no-motion *,
+body.no-motion *::before,
+body.no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* -------------------------------------------------------------- footer */
 .footer {
   position: absolute;
@@ -338,6 +452,12 @@ body {
   align-items: center;
   gap: 14px;
   z-index: 6;
+  animation: ui-rise 520ms 360ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes ui-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .ghost {
@@ -408,6 +528,15 @@ body {
 }
 
 .menu[hidden] { display: none; }
+.menu:not([hidden]) {
+  transform-origin: top left;
+  animation: menu-in 140ms ease-out both;
+}
+
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 .menu button {
   display: block;
@@ -435,6 +564,7 @@ body {
   place-items: center;
   background: rgba(4, 12, 20, 0.55);
   font-family: 'Segoe UI', system-ui, sans-serif;
+  animation: veil-in 160ms ease-out both;
 }
 
 .prompt form {
@@ -445,6 +575,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   color: #e8eefc;
+  animation: dialog-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.08) both;
 }
 
 .prompt label { display: block; font-size: 13px; letter-spacing: 0.4px; }
@@ -505,6 +636,7 @@ body {
   background: rgba(4, 12, 20, 0.62);
   backdrop-filter: blur(2px);
   font-family: 'Segoe UI', system-ui, sans-serif;
+  animation: veil-in 160ms ease-out both;
 }
 
 .sheet-panel {
@@ -517,6 +649,17 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.62);
   color: #e8eefc;
+  animation: dialog-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.08) both;
+}
+
+@keyframes veil-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .sheet-panel h2 {

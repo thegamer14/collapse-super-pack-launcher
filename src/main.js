@@ -100,15 +100,15 @@ const RELEASE_YEARS = {
    GameHouse titles paint a fixed surface, Collapse! (2010) scales with its
    window. */
 const NATIVE_SIZES = {
-  'puzzle-gallery': { width: 800, height: 600, scalable: false },
-  'puzzle-gallery-2': { width: 800, height: 600, scalable: false },
-  'puzzle-gallery-3': { width: 800, height: 600, scalable: false },
-  'puzzle-gallery-4': { width: 800, height: 600, scalable: false },
-  'puzzle-gallery-5': { width: 800, height: 600, scalable: false },
-  'super-collapse-3': { width: 800, height: 600, scalable: false },
-  'collapse-crunch': { width: 800, height: 600, scalable: false },
-  'super-collapse-2': { width: 640, height: 480, scalable: false },
-  'spongebob-collapse': { width: 640, height: 480, scalable: false },
+  'puzzle-gallery': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'puzzle-gallery-2': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'puzzle-gallery-3': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'puzzle-gallery-4': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'puzzle-gallery-5': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'super-collapse-3': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'collapse-crunch': { width: 800, height: 600, scalable: false, mouseSafe: true },
+  'super-collapse-2': { width: 640, height: 480, scalable: false, mouseSafe: true },
+  'spongebob-collapse': { width: 640, height: 480, scalable: false, mouseSafe: true },
   'super-collapse': { width: 800, height: 600, scalable: false },
   collapse: { width: 1024, height: 768, scalable: true },
 };
@@ -210,6 +210,37 @@ function bundledGamePath(game) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+/** An optional serial.txt shipped beside a game (SpongeBob has one). */
+function licenseFileFor(game) {
+  if (!game || !game.path) return null;
+  const file = path.join(path.dirname(game.path), 'serial.txt');
+  return fs.existsSync(file) ? file : null;
+}
+
+/** Reads the simple "License Name / License Code" pairs in serial.txt. */
+function readSerialEntries(file) {
+  const stat = fs.statSync(file);
+  if (stat.size > 64 * 1024) return [];
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  const entries = [];
+  let name = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const nameMatch = line.match(/^license\s+name\s*:\s*(.+)$/i);
+    if (nameMatch) {
+      name = nameMatch[1].trim();
+      continue;
+    }
+    const codeMatch = line.match(/^license\s+code\s*:\s*(.+)$/i);
+    if (codeMatch && name) {
+      entries.push({ name, code: codeMatch[1].trim() });
+      name = null;
+    }
+  }
+  return entries.filter((entry) => entry.name && entry.code);
+}
+
 function readLibrary() {
   try {
     const parsed = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'));
@@ -222,9 +253,29 @@ function readLibrary() {
       if (collapse && !collapse.settings) {
         collapse.settings = {
           args: '', cwd: null, admin: false,
-          display: 'scaled', scaling: 'fill', filter: 'smooth', musicFix: true, widescreenFix: true,
+          display: 'borderless', scaling: 'fill', filter: 'smooth', musicFix: true, widescreenFix: true,
           windowWidth: 1920, windowHeight: 1080,
         };
+        changed = true;
+      } else if (collapse && (collapse.settings.display === 'scaled' || collapse.settings.display === 'fullscreen')) {
+        // Collapse! 4 is OpenGL, so BitBit's GDI capture cannot present it.
+        // It scales its own window; Borderless is the working 1080p path.
+        collapse.settings.display = 'borderless';
+        changed = true;
+      }
+      // The GameHouse engines fight BitBit's moving-window cursor mapping.
+      // Move older scaled entries onto the native fullscreen fallback once;
+      // after this marker a player can deliberately choose Scaled again.
+      if (parsed.displayModeMigration !== 1) {
+        for (const game of parsed.games) {
+          const native = NATIVE_SIZES[game.id];
+          if (!native || !native.mouseSafe || !game.settings) continue;
+          if (game.settings.display === 'scaled' || game.settings.display === 'fullscreen') {
+            game.settings.display = 'native';
+            changed = true;
+          }
+        }
+        parsed.displayModeMigration = 1;
         changed = true;
       }
       // Existing libraries keep their old labels until they are touched. Fix
@@ -357,6 +408,7 @@ function decorate(library) {
       ...game,
       exists: Boolean(game.path) && fs.existsSync(game.path),
       native: NATIVE_SIZES[game.id] || null,
+      hasSerial: Boolean(licenseFileFor(game)),
       codes: GAME_CODES[game.id] || [],
       codeGuide: CODE_GUIDES[game.id] || null,
     })),
@@ -459,10 +511,11 @@ ipcMain.handle('game:update', (_event, { id, settings }) => {
   const patch = settings || {};
   const width = Number(patch.windowWidth);
   const height = Number(patch.windowHeight);
-  // 'fullscreen' was the old mode-switching path; it maps onto the scaler
-  const display = patch.display === 'scaled' || patch.display === 'fullscreen'
-    ? 'scaled'
-    : patch.display === 'borderless' ? 'borderless' : 'window';
+  // 'fullscreen' was the old mode-switching path; it maps onto the scaler.
+  // 'native' is the separate no-BitBit fullscreen compatibility path.
+  const display = patch.display === 'native' ? 'native'
+    : patch.display === 'scaled' || patch.display === 'fullscreen' ? 'scaled'
+      : patch.display === 'borderless' ? 'borderless' : 'window';
   game.settings = {
     args: typeof patch.args === 'string' ? patch.args.slice(0, 400) : '',
     cwd: patch.cwd ? String(patch.cwd) : null,
@@ -491,9 +544,11 @@ ipcMain.handle('game:launch', async (_event, id) => {
   // fixed-size engines need the wrapper; the 2010 Collapse! re-renders itself
   const needsWrapper = !game.native || !game.native.scalable;
   const chosen = settings.display === 'scaled' || settings.display === 'window' ||
-    settings.display === 'fullscreen' || settings.display === 'borderless';
+    settings.display === 'fullscreen' || settings.display === 'borderless' || settings.display === 'native';
   // fixed-size engines default to the wrapper; everything else stays windowed
-  const display = chosen ? settings.display : (needsWrapper ? 'scaled' : 'window');
+  const displayDefault = game.native && game.native.mouseSafe ? 'native' : (needsWrapper ? 'scaled' : 'window');
+  let display = chosen ? settings.display : displayDefault;
+  if (game.id === 'collapse' && (display === 'scaled' || display === 'fullscreen')) display = 'borderless';
   const scaled = display === 'scaled' || display === 'fullscreen';
   let warning = null;
 
@@ -531,7 +586,7 @@ ipcMain.handle('game:launch', async (_event, id) => {
   // too: previously Collapse! 2010 was sent straight to launchExecutable and
   // kept its little window (and the black bars) no matter what was selected.
   // A requested window size also needs the display helper to apply it.
-  const wantsDisplay = scaled || display === 'borderless' || Boolean(settings.windowWidth && settings.windowHeight);
+  const wantsDisplay = scaled || display === 'native' || display === 'borderless' || Boolean(settings.windowWidth && settings.windowHeight);
   const result = wantsDisplay && !settings.admin
     ? launchWithDisplay(game.path, { ...settings, display, native: game.native })
     : launchExecutable(game.path, settings);
@@ -583,6 +638,26 @@ ipcMain.handle('game:unlock', async (_event, id) => {
   const game = findGame(id);
   if (!game) return { ok: false, error: 'That game is not in the library.' };
   return gameSaves.unlockGame(game, DATA_DIR);
+});
+
+ipcMain.handle('game:license-info', (_event, id) => {
+  const game = findGame(id);
+  if (!game) return { ok: false, error: 'That game is not in the library.' };
+
+  const file = licenseFileFor(game);
+  if (!file) return { ok: false, error: 'No serial.txt was found next to this game.' };
+
+  try {
+    const entries = readSerialEntries(file);
+    if (!entries.length) {
+      return { ok: false, error: 'serial.txt does not contain a License Name / License Code pair.' };
+    }
+    logger.log('license information read', { id: game.id, file, entries: entries.length });
+    return { ok: true, file, entries };
+  } catch (error) {
+    logger.error('could not read license information', { id: game.id, file, error: error.message });
+    return { ok: false, error: 'Could not read serial.txt.' };
+  }
 });
 
 ipcMain.handle('launcher:version', () => app.getVersion());

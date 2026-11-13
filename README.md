@@ -96,6 +96,11 @@ There are two gears, and they save different things.
   (fast)** uses nearest-neighbour, which is lighter on slower GPUs.
 - **Run as administrator** — starts the game through a UAC prompt, which some of
   these titles need before they can write a save file.
+- **License info** — games that ship with a `serial.txt` beside the executable
+  get a small key button beside Play. It shows and copies the license name and
+  code from that file, then can launch the game so you can paste them into the
+  game's own registration dialog. The launcher never validates, auto-fills or
+  patches a license.
 - **Launch log** — **Launcher settings → Launch diagnostics** opens
   `launcher.log`. It records startup information, game paths, launch commands,
   helper output, process IDs and exit codes, and whether the game process was
@@ -238,6 +243,12 @@ explanation instead of failing silently — point that tile at a working copy wi
 
 A Rust/WebAssembly rebuild of the same game — original art and sound, running in
 any browser — lives in [`../SuperCollapseRS`](../SuperCollapseRS).
+
+**SpongeBob SquarePants Collapse!** This is the GameHouse 60-minute trial build.
+The folder includes a `serial.txt` with the license details that came with this
+copy. The key button beside its Play button shows and copies those details; they
+must still be entered in the game's own **Buy Now / License Information** dialog.
+The launcher does not register the game or bypass the trial.
 
 The tracer work behind that verdict — where the loader stops, the Windows XP
 constant it depends on, and why no amount of patching yields game code — is

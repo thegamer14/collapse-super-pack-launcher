@@ -5,7 +5,8 @@ param(
   [int]$Width = 0,
   [int]$Height = 0,
   [int]$WindowWidth = 0,
-  [int]$WindowHeight = 0
+  [int]$WindowHeight = 0,
+  [string]$WorkingDirectory = ''
 )
 
 # Starts a game for modern displays.
@@ -212,9 +213,12 @@ try {
   Write-Output "compat layer not set: $($_.Exception.Message)"
 }
 
+$runDir = Split-Path -Parent $Exe
+if ($WorkingDirectory -and (Test-Path $WorkingDirectory)) { $runDir = $WorkingDirectory }
+
 $startArgs = @{
   FilePath = $Exe
-  WorkingDirectory = (Split-Path -Parent $Exe)
+  WorkingDirectory = $runDir
   PassThru = $true
 }
 if ($Arguments) { $startArgs['ArgumentList'] = $Arguments }

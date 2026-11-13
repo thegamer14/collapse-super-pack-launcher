@@ -82,6 +82,7 @@ const backend = window.launcher || {
   openLauncherRelease: async () => ({ ok: false }),
   fitWindow: async () => null,
   unlock: async () => ({ ok: false, error: 'Unlocking works in the desktop app.' }),
+  licenseInfo: async () => ({ ok: false, error: 'License details work in the desktop app.' }),
   saveInfo: async () => ({ supported: false, files: [] }),
   cloudHealth: async () => ({ ok: false, error: 'Cloud features work in the desktop app.' }),
   leaderboard: async () => ({ scores: [] }),
@@ -112,6 +113,9 @@ let settings = { ...LAUNCHER_DEFAULT_SETTINGS };
 
 const GEAR_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.1 7.1 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.88 2h-3.76a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.61.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.1 7.1 0 0 0 0 1.88L2.83 14.16a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.33.61.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.24.42.5.42h3.76c.26 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.18.11.47.02.61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>';
+
+const KEY_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 2a6.5 6.5 0 0 0-6.2 8.5L2 17.8V22h4.2l7.3-7.3A6.5 6.5 0 1 0 15.5 2Zm0 3.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/></svg>';
 
 /* ------------------------------------------------------------- helpers */
 function fitStage() {
@@ -252,6 +256,19 @@ function buildTile(game, index) {
       openCodes(game);
     });
     playRow.append(codes);
+  }
+  if (game.hasSerial) {
+    const license = document.createElement('button');
+    license.type = 'button';
+    license.className = 'license-btn';
+    license.title = `License details for ${game.title}`;
+    license.setAttribute('aria-label', `License details for ${game.title}`);
+    license.innerHTML = KEY_SVG;
+    license.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openLicense(game);
+    });
+    playRow.append(license);
   }
   playRow.append(play, gear);
   tile.append(face, playRow);
@@ -616,6 +633,101 @@ function openCodes(game) {
   done.textContent = 'Done';
   done.addEventListener('click', close);
   footer.append(grow, done);
+  panel.append(footer);
+  done.focus();
+}
+
+async function openLicense(game) {
+  let info;
+  try {
+    info = await backend.licenseInfo(game.id);
+  } catch (error) {
+    toast(error.message || 'Could not read the license details.');
+    return;
+  }
+  if (!info || info.ok === false) {
+    toast((info && info.error) || 'No license details were found for this game.');
+    return;
+  }
+
+  const { panel, close } = showSheet(
+    `${game.title} license`,
+    'This helper only shows what is already in serial.txt. Enter the details in the game’s own registration dialog; the launcher does not validate or apply the license.'
+  );
+
+  const guide = document.createElement('p');
+  guide.className = 'code-note';
+  guide.textContent =
+    'Start the game, open Buy Now or License Information, paste the name and code into the game’s fields, then click Enter License Information.';
+  panel.append(guide);
+
+  const list = document.createElement('div');
+  list.className = 'code-list';
+  info.entries.forEach((entry) => {
+    const card = document.createElement('div');
+    card.className = 'code-card';
+
+    const main = document.createElement('div');
+    main.className = 'code-main';
+    const name = document.createElement('strong');
+    name.className = 'code-reward';
+    name.textContent = entry.name || 'License name';
+    const code = document.createElement('span');
+    code.className = 'code-value';
+    code.textContent = entry.code || '';
+    const source = document.createElement('small');
+    source.className = 'code-source';
+    source.textContent = 'License name and code from serial.txt';
+    main.append(name, code, source);
+
+    const actions = document.createElement('div');
+    actions.className = 'button-row';
+    const copyName = document.createElement('button');
+    copyName.type = 'button';
+    copyName.className = 'btn quiet';
+    copyName.textContent = 'Copy name';
+    copyName.addEventListener('click', async () => {
+      const copied = await copyText(entry.name || '');
+      toast(copied ? 'License name copied.' : 'Select the license name and copy it.');
+    });
+    const copyCode = document.createElement('button');
+    copyCode.type = 'button';
+    copyCode.className = 'btn primary copy-code';
+    copyCode.textContent = 'Copy code';
+    copyCode.addEventListener('click', async () => {
+      const copied = await copyText(entry.code || '');
+      copyCode.textContent = copied ? 'Copied' : 'Select';
+      toast(copied ? 'License code copied.' : 'Select the license code and copy it.');
+      setTimeout(() => { copyCode.textContent = 'Copy code'; }, 1400);
+    });
+    actions.append(copyName, copyCode);
+    card.append(main, actions);
+    list.append(card);
+  });
+  panel.append(list);
+
+  const file = document.createElement('p');
+  file.className = 'pathbox';
+  file.textContent = `License file: ${info.file}`;
+  panel.append(file);
+
+  const footer = document.createElement('footer');
+  const launch = document.createElement('button');
+  launch.type = 'button';
+  launch.className = 'btn primary';
+  launch.textContent = 'Launch game';
+  launch.addEventListener('click', () => {
+    close();
+    startGame(game);
+  });
+  const grow = document.createElement('span');
+  grow.className = 'grow';
+  const done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'btn';
+  done.textContent = 'Done';
+  done.addEventListener('click', close);
+  footer.append(launch, grow, done);
   panel.append(footer);
   done.focus();
 }
@@ -1043,9 +1155,13 @@ function openGameSettings(game) {
   panel.append(cwdField);
 
   /* ---- display: our wrapper presents fixed-size engines at any resolution ---- */
-  let chosenDisplay = current.display === 'borderless'
-    ? 'borderless'
-    : current.display === 'fullscreen' || current.display === 'scaled' ? 'scaled' : 'window';
+  let chosenDisplay = current.display === 'native'
+    ? 'native'
+    : current.display === 'borderless'
+      ? 'borderless'
+      : current.display === 'fullscreen' || current.display === 'scaled'
+        ? (game.native && game.native.scalable ? 'borderless' : 'scaled')
+        : (game.native && game.native.mouseSafe ? 'native' : 'window');
   let chosenSize = current.windowWidth && current.windowHeight
     ? `${current.windowWidth}x${current.windowHeight}`
     : '';
@@ -1059,16 +1175,20 @@ function openGameSettings(game) {
   displayLabel.textContent = 'Display';
   const displayHint = document.createElement('small');
   displayHint.textContent = native && !native.scalable
-    ? `This game draws at ${native.width} × ${native.height} and cannot render larger. Scaled runs it through BitBit, our upscaler: it re-presents the game at the resolution below, at your monitor's refresh rate, with the real cursor.`
-    : 'Scaled runs the game through BitBit at the resolution below. Window leaves the game in its own window.';
+    ? (native.mouseSafe
+      ? `This game draws at ${native.width} × ${native.height}. Fullscreen runs it at that native mode and avoids cursor drift. Scaled uses BitBit if you prefer the larger presentation.`
+      : `This game draws at ${native.width} × ${native.height} and cannot render larger. Scaled runs it through BitBit, our upscaler: it re-presents the game at the resolution below, at your monitor's refresh rate, with the real cursor.`)
+    : 'Borderless fills the screen using this engine’s own scalable window. Window leaves the game in its own window.';
   displayLabel.append(displayHint);
 
   const modes = document.createElement('div');
   modes.className = 'segments';
   const modeButtons = {};
   const displayChoices = native && native.scalable
-    ? [['scaled', 'Scaled'], ['borderless', 'Borderless'], ['window', 'Window']]
-    : [['scaled', 'Scaled'], ['window', 'Window']];
+    ? [['borderless', 'Borderless'], ['window', 'Window']]
+    : native && native.mouseSafe
+      ? [['scaled', 'Scaled'], ['native', 'Fullscreen'], ['window', 'Window']]
+      : [['scaled', 'Scaled'], ['window', 'Window']];
   for (const [value, label] of displayChoices) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1291,7 +1411,7 @@ function openGameSettings(game) {
     argsInput.value = '';
     cwdInput.value = '';
     adminInput.checked = false;
-    chosenDisplay = 'scaled';
+    chosenDisplay = native && native.scalable ? 'borderless' : native && native.mouseSafe ? 'native' : 'scaled';
     chosenSize = '';
     chosenScaling = 'fit';
     chosenFilter = 'smooth';
@@ -1299,7 +1419,8 @@ function openGameSettings(game) {
     widescreenFix = true;
     if (musicToggle) musicToggle.checked = true;
     if (widescreenToggle) widescreenToggle.checked = true;
-    for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === 'scaled');
+    const resetDisplay = native && native.scalable ? 'borderless' : native && native.mouseSafe ? 'native' : 'scaled';
+    for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === resetDisplay);
     for (const [key, el] of Object.entries(sizeButtons)) el.classList.toggle('on', key === '');
     for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === 'fit');
     for (const [key, el] of Object.entries(filterButtons)) el.classList.toggle('on', key === 'smooth');

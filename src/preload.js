@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('launcher', {
   pickFolder: (options) => ipcRenderer.invoke('folder:pick', options),
   updateGame: (payload) => ipcRenderer.invoke('game:update', payload),
   unlock: (id) => ipcRenderer.invoke('game:unlock', id),
+  licenseInfo: (id) => ipcRenderer.invoke('game:license-info', id),
   saveInfo: (id) => ipcRenderer.invoke('game:save-info', id),
   getVersion: () => ipcRenderer.invoke('launcher:version'),
   getLogPath: () => ipcRenderer.invoke('launcher:log-path'),

@@ -1,7 +1,7 @@
 {
   "name": "collapse-super-pack-launcher",
   "productName": "Collapse Super Pack",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Launcher for the Collapse! / Super Collapse! collection",
   "author": "Collapse Super Pack",
   "main": "src/main.js",
