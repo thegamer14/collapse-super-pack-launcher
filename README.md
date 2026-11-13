@@ -88,12 +88,13 @@ There are two gears, and they save different things.
   **Fill 16:9** stretches it to the whole screen for widescreen.
 - **Scaling quality** — **Smooth** uses BitBit's HALFTONE filter; **Sharp
   (fast)** uses nearest-neighbour, which is lighter on slower GPUs.
-- **Continuous mode music fix** — Collapse! starts its menu stream in
-  Continuous and never hands over to the track the scene declares. This option
-  repoints `MUSIC_GAME` to `SC4_ContinuousCollapse.ogg`; the untouched
-  `resources.xml` is kept beside it as `resources.xml.launcher-original`.
 - **Run as administrator** — starts the game through a UAC prompt, which some of
   these titles need before they can write a save file.
+- **Launch log** — **Launcher settings → Launch diagnostics** opens
+  `launcher.log`. It records startup information, game paths, launch commands,
+  helper output, process IDs and exit codes, and whether the game process was
+  still running six seconds after launch. Use **Copy log** to send the details
+  when a game will not start.
 
 ### Codes
 

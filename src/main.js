@@ -11,6 +11,7 @@ const discord = require('./discord');
 const gameSaves = require('./game-saves');
 const gamePatches = require('./game-patches');
 const updater = require('./updater');
+const logger = require('./logger');
 const { GAME_CODES, CODE_GUIDES } = require('./game-codes');
 
 const ROOT = path.resolve(__dirname, '..');          // CollapseLauncher/, or app/ inside a build
@@ -28,6 +29,26 @@ const GAMES_DIR = app.isPackaged
 const DATA_DIR = app.isPackaged ? app.getPath('userData') : path.join(ROOT, 'data');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+logger.configure(DATA_DIR);
+logger.log('launcher starting', {
+  version: app.getVersion(),
+  packaged: app.isPackaged,
+  platform: `${process.platform} ${process.arch}`,
+  windows: os.release(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  execPath: process.execPath,
+  portableDir: process.env.PORTABLE_EXECUTABLE_DIR || null,
+  portableFile: process.env.PORTABLE_EXECUTABLE_FILE || null,
+  gamesDir: GAMES_DIR,
+  dataDir: DATA_DIR,
+  logPath: logger.file(),
+});
+
+process.on('uncaughtException', (error) => logger.error('uncaught exception', error));
+process.on('unhandledRejection', (reason) => logger.error('unhandled rejection', reason));
 
 /* Rich Presence uses the launcher's own Discord application. Only the
    application/client ID is needed for local RPC; the application's public key
@@ -116,10 +137,16 @@ function syncGamePresence() {
     });
     if (game) {
       if (presenceGameId !== game.id) {
+        logger.log('running game detected', {
+          id: game.id,
+          title: game.title,
+          executable: game.path,
+        });
         presenceGameId = game.id;
         discord.setGame(game);
       }
     } else if (presenceGameId !== null) {
+      logger.log('running game ended', { id: presenceGameId });
       presenceGameId = null;
       discord.clearGame();
     }
@@ -127,11 +154,35 @@ function syncGamePresence() {
 }
 
 function noteGameStarted(game) {
+  logger.log('game launch handed to Discord presence', { id: game.id, title: game.title });
   presenceGameId = game.id;
   discord.setGame(game);
   // The process may take a moment to appear; a later poll also keeps this in
   // sync with games that were started without going through the launcher.
   setTimeout(syncGamePresence, 1500);
+}
+
+/** Lists any running process whose image name matches the game executable. */
+function listGameProcesses(exePath) {
+  const image = path.basename(exePath || '');
+  return new Promise((resolve) => {
+    if (!image) return resolve([]);
+    execFile(
+      'tasklist.exe',
+      ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'],
+      { windowsHide: true },
+      (error, stdout, stderr) => {
+        if (error) {
+          resolve([`tasklist failed: ${error.message}${stderr ? ` (${String(stderr).trim()})` : ''}`]);
+          return;
+        }
+        resolve(String(stdout || '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && !/^INFO:/i.test(line)));
+      }
+    );
+  });
 }
 
 function releaseYear(game) {
@@ -322,6 +373,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  logger.log('launcher quitting');
   if (presenceTimer) clearInterval(presenceTimer);
   presenceTimer = null;
   discord.clearGame();
@@ -370,7 +422,10 @@ ipcMain.handle('game:update', (_event, { id, settings }) => {
 ipcMain.handle('game:launch', async (_event, id) => {
   const library = decorate(readLibrary());
   const game = library.games.find((g) => g.id === id);
-  if (!game) return { ok: false, error: 'That game is no longer in the library.' };
+  if (!game) {
+    logger.warn('launch rejected: game is not in the library', { id });
+    return { ok: false, error: 'That game is no longer in the library.' };
+  }
 
   const settings = game.settings || {};
   // fixed-size engines need the wrapper; the 2010 Collapse! re-renders itself
@@ -382,6 +437,26 @@ ipcMain.handle('game:launch', async (_event, id) => {
   const scaled = display === 'scaled' || display === 'fullscreen';
   let warning = null;
 
+  logger.log('game launch requested', {
+    id: game.id,
+    title: game.title,
+    executable: game.path,
+    exists: game.exists,
+    settings,
+    display,
+    needsWrapper,
+    native: game.native,
+  });
+
+  if (game.path) {
+    const existing = await listGameProcesses(game.path);
+    logger.log('existing game processes before launch', {
+      id: game.id,
+      image: path.basename(game.path),
+      processes: existing,
+    });
+  }
+
   // Collapse! (2009/2010) starts the menu stream and never switches to the
   // continuous track. The resource patch is backed up and reversible.
   if (game.id === 'collapse') {
@@ -389,6 +464,7 @@ ipcMain.handle('game:launch', async (_event, id) => {
     if (!music.ok) warning = music.error;
     const widescreen = gamePatches.setWidescreenFix(game.path, settings.widescreenFix !== false);
     if (!widescreen.ok && !warning) warning = widescreen.error;
+    if (warning) logger.warn('game patch warning', { id: game.id, warning });
   }
 
   // Scaled is the whole point of BitBit, so it has to work for scalable games
@@ -396,14 +472,51 @@ ipcMain.handle('game:launch', async (_event, id) => {
   // kept its little window (and the black bars) no matter what was selected.
   // A requested window size also needs the display helper to apply it.
   const wantsDisplay = scaled || display === 'borderless' || Boolean(settings.windowWidth && settings.windowHeight);
-  if (wantsDisplay && !settings.admin) {
-    const result = launchWithDisplay(game.path, { ...settings, display, native: game.native });
-    if (result.ok) noteGameStarted(game);
-    return warning ? { ...result, warning } : result;
+  const result = wantsDisplay && !settings.admin
+    ? launchWithDisplay(game.path, { ...settings, display, native: game.native })
+    : launchExecutable(game.path, settings);
+
+  if (result.ok) {
+    noteGameStarted(game);
+    logger.log('game launch accepted', {
+      id: game.id,
+      method: wantsDisplay && !settings.admin ? 'display-helper' : 'direct',
+      pid: result.pid || null,
+      display,
+      executable: game.path,
+      logPath: logger.file(),
+    });
+    const check = setTimeout(async () => {
+      const running = await listGameProcesses(game.path);
+      if (running.length) {
+        logger.log('game process check: running', {
+          id: game.id,
+          image: path.basename(game.path || ''),
+          processes: running,
+        });
+      } else {
+        logger.warn('game process check: not running six seconds after launch', {
+          id: game.id,
+          executable: game.path,
+          launchPid: result.pid || null,
+          display,
+          logPath: logger.file(),
+        });
+      }
+    }, 6000);
+    if (check.unref) check.unref();
+  } else {
+    logger.error('game launch failed', {
+      id: game.id,
+      error: result.error,
+      executable: game.path,
+      display,
+      logPath: logger.file(),
+    });
   }
-  const result = launchExecutable(game.path, settings);
-  if (result.ok) noteGameStarted(game);
-  return warning ? { ...result, warning } : result;
+
+  const response = warning ? { ...result, warning } : result;
+  return { ...response, logPath: logger.file() };
 });
 
 ipcMain.handle('game:unlock', async (_event, id) => {
@@ -413,6 +526,17 @@ ipcMain.handle('game:unlock', async (_event, id) => {
 });
 
 ipcMain.handle('launcher:version', () => app.getVersion());
+
+ipcMain.handle('launcher:log-path', () => logger.file());
+
+ipcMain.handle('launcher:log-read', () => logger.readTail());
+
+ipcMain.handle('launcher:log-open', async () => {
+  const target = logger.ensure();
+  if (!target) return { ok: false, error: 'The launcher log is not available.' };
+  const error = await shell.openPath(target);
+  return error ? { ok: false, error } : { ok: true, path: target };
+});
 
 ipcMain.handle('launcher:update-check', () => updater.checkForUpdates());
 

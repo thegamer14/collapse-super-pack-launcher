@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const logger = require('./logger');
 
 /**
  * Windows cannot start a file that lives inside app.asar, so the build keeps
@@ -12,6 +13,38 @@ const { spawn } = require('child_process');
 function onDisk(target) {
   const marker = `app.asar${path.sep}`;
   return target.includes(marker) ? target.replace(marker, `app.asar.unpacked${path.sep}`) : target;
+}
+
+function errorDetails(error) {
+  if (!error) return null;
+  return {
+    message: error.message,
+    code: error.code,
+    errno: error.errno,
+    syscall: error.syscall,
+    path: error.path,
+  };
+}
+
+function childStdio() {
+  const fd = logger.outputHandle();
+  return ['ignore', fd, fd];
+}
+
+function attachProcessLogging(child, context) {
+  child.on('spawn', () => logger.log('process spawned', { ...context, pid: child.pid }));
+  child.on('error', (error) => logger.error('process error', {
+    ...context,
+    pid: child.pid,
+    error: errorDetails(error),
+  }));
+  child.on('exit', (code, signal) => logger.log('process exited', {
+    ...context,
+    pid: child.pid,
+    code,
+    signal,
+  }));
+  return child;
 }
 
 /**
@@ -58,6 +91,7 @@ function sectionNames(exePath) {
 function packerBlocker(exePath) {
   const names = sectionNames(exePath);
   if (!names.some((name) => name === '.adata')) return null;
+  logger.warn('executable blocked by ASProtect', { exePath, sections: names });
   return {
     ok: false,
     error:
@@ -94,6 +128,7 @@ function launchElevated(exePath, args, cwd) {
   const script =
     '$r = Start-Process -FilePath $env:LAUNCH_EXE -WorkingDirectory $env:LAUNCH_CWD' +
     ' -ArgumentList $env:LAUNCH_ARGS -Verb RunAs -PassThru; $r.WaitForExit()';
+  logger.log('starting elevated launch', { executable: exePath, cwd, arguments: args });
   const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
     env: {
       ...process.env,
@@ -102,10 +137,10 @@ function launchElevated(exePath, args, cwd) {
       LAUNCH_ARGS: args.join(' '),
     },
     detached: true,
-    stdio: 'ignore',
+    stdio: childStdio(),
     windowsHide: true,
   });
-  child.on('error', (error) => console.error('elevated launch failed:', error.message));
+  attachProcessLogging(child, { kind: 'elevated-launch', executable: exePath, cwd });
   child.unref();
   return child;
 }
@@ -118,15 +153,27 @@ function launchPlain(exePath, options) {
 
   if (options && options.admin) return launchElevated(exePath, args, cwd);
 
+  logger.log('starting game', {
+    kind: isScript ? 'script-launch' : 'game-launch',
+    executable: exePath,
+    arguments: args,
+    cwd,
+    admin: Boolean(options && options.admin),
+  });
   const child = isScript
     ? spawn('cmd.exe', ['/c', exePath, ...args], {
         cwd,
         detached: true,
-        stdio: 'ignore',
+        stdio: childStdio(),
         windowsHide: true,
       })
-    : spawn(exePath, args, { cwd, detached: true, stdio: 'ignore' });
-  child.on('error', (error) => console.error('launch failed:', error.message));
+    : spawn(exePath, args, { cwd, detached: true, stdio: childStdio() });
+  attachProcessLogging(child, {
+    kind: isScript ? 'script-launch' : 'game-launch',
+    executable: exePath,
+    cwd,
+    arguments: args,
+  });
   child.unref();
   return child;
 }
@@ -136,8 +183,12 @@ function launchPlain(exePath, options) {
  * The working directory matters: these games load assets relative to it.
  */
 function launchExecutable(exePath, options = {}) {
-  if (!exePath) return { ok: false, error: 'No executable is set for this game.' };
+  if (!exePath) {
+    logger.warn('launch rejected: no executable is set');
+    return { ok: false, error: 'No executable is set for this game.' };
+  }
   if (!fs.existsSync(exePath)) {
+    logger.warn('launch rejected: executable is missing', { exePath });
     return { ok: false, error: 'That file is missing. Use Locate to point the launcher at it.' };
   }
 
@@ -145,9 +196,10 @@ function launchExecutable(exePath, options = {}) {
   if (blocked) return blocked;
 
   try {
-    launchPlain(exePath, options);
-    return { ok: true };
+    const child = launchPlain(exePath, options);
+    return { ok: true, pid: child.pid };
   } catch (error) {
+    logger.error('plain launch threw', { exePath, error: errorDetails(error) });
     return { ok: false, error: error.message };
   }
 }
@@ -181,8 +233,14 @@ function launchScaled(exePath, options = {}) {
   if (options.filter === 'nearest') scalerArgs.push('--nearest');
 
   try {
-    const child = spawn(SCALER, scalerArgs, { cwd, detached: true, stdio: 'ignore', windowsHide: true });
-    child.on('error', (error) => console.error('scaled launch failed:', error.message));
+    logger.log('starting BitBit', { scaler: SCALER, executable: exePath, arguments: scalerArgs, cwd });
+    const child = spawn(SCALER, scalerArgs, {
+      cwd,
+      detached: true,
+      stdio: childStdio(),
+      windowsHide: true,
+    });
+    attachProcessLogging(child, { kind: 'bitbit', executable: exePath, cwd });
     // BitBit restores the cursor scheme itself; this covers a crash
     child.on('exit', () => {
       try {
@@ -190,8 +248,9 @@ function launchScaled(exePath, options = {}) {
       } catch { /* nothing to recover */ }
     });
     child.unref();
-    return { ok: true };
+    return { ok: true, pid: child.pid };
   } catch (error) {
+    logger.error('BitBit launch threw', { exePath, error: errorDetails(error) });
     return { ok: false, error: error.message };
   }
 }
@@ -214,24 +273,30 @@ function launchWindowed(exePath, options = {}) {
   if (args.length) psArgs.push('-Arguments', args.join(' '));
 
   try {
+    logger.log('starting display helper', { executable: exePath, arguments: psArgs, mode: 'window' });
     const child = spawn('powershell.exe', psArgs, {
       cwd: path.dirname(exePath),
       detached: true,
-      stdio: 'ignore',
+      stdio: childStdio(),
       windowsHide: true,
     });
-    child.on('error', (error) => console.error('display launch failed:', error.message));
+    attachProcessLogging(child, { kind: 'display-helper', executable: exePath, mode: 'window' });
     child.unref();
-    return { ok: true };
+    return { ok: true, pid: child.pid };
   } catch (error) {
+    logger.error('display helper launch threw', { exePath, error: errorDetails(error) });
     return { ok: false, error: error.message };
   }
 }
 
 /** Runs a game the way its per-game settings ask for. */
 function launchWithDisplay(exePath, options = {}) {
-  if (!exePath) return { ok: false, error: 'No executable is set for this game.' };
+  if (!exePath) {
+    logger.warn('display launch rejected: no executable is set');
+    return { ok: false, error: 'No executable is set for this game.' };
+  }
   if (!fs.existsSync(exePath)) {
+    logger.warn('display launch rejected: executable is missing', { exePath });
     return { ok: false, error: 'That file is missing. Use Locate to point the launcher at it.' };
   }
 

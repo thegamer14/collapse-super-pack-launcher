@@ -74,6 +74,9 @@ const backend = window.launcher || {
   getSettings: async () => ({ ...LAUNCHER_DEFAULT_SETTINGS }),
   saveSettings: async (patch) => ({ ...LAUNCHER_DEFAULT_SETTINGS, ...patch }),
   getVersion: async () => '1.0.0-dev',
+  getLogPath: async () => '',
+  readLog: async () => '',
+  openLog: async () => ({ ok: false, error: 'Launch logs work in the desktop app.' }),
   checkLauncherUpdate: async () => ({ ok: false, error: 'GitHub updates work in the desktop app.' }),
   installLauncherUpdate: async () => ({ ok: false, error: 'GitHub updates work in the desktop app.' }),
   openLauncherRelease: async () => ({ ok: false }),
@@ -301,12 +304,17 @@ async function refresh(library) {
 
 /* ------------------------------------------------------------ actions */
 async function startGame(game) {
-  const result = await backend.launch(game.id);
-  if (!result || result.ok === false) {
-    toast(result && result.error ? result.error : 'Could not start that game.');
-    return;
+  try {
+    const result = await backend.launch(game.id);
+    if (!result || result.ok === false) {
+      const message = result && result.error ? result.error : 'Could not start that game.';
+      toast(`${message} See Launcher settings → Launch log.`);
+      return;
+    }
+    toast(result.warning ? `Launching ${game.title}… ${result.warning}` : `Launching ${game.title}…`);
+  } catch (error) {
+    toast(`${error.message || 'Could not start that game.'} See Launcher settings → Launch log.`);
   }
-  toast(result.warning ? `Launching ${game.title}… ${result.warning}` : `Launching ${game.title}…`);
 }
 
 async function relocate(game) {
@@ -733,6 +741,64 @@ function openLauncherSettings() {
 
   releaseButton.addEventListener('click', () => {
     backend.openLauncherRelease().catch(() => toast('Could not open the GitHub releases page.'));
+  });
+
+  /* ------------------------------------------------------- launch log */
+  const diagnosticsSection = document.createElement('p');
+  diagnosticsSection.className = 'sub section-title';
+  diagnosticsSection.textContent = 'Launch diagnostics';
+  panel.append(diagnosticsSection);
+
+  const logField = document.createElement('div');
+  logField.className = 'field';
+  const logLabel = document.createElement('label');
+  logLabel.textContent = 'Launch log';
+  const logHint = document.createElement('small');
+  logHint.textContent = 'Records startup, game paths, launch commands, helper errors and process exits.';
+  logLabel.append(logHint);
+
+  const logRow = document.createElement('div');
+  logRow.className = 'button-row';
+  const openLogButton = document.createElement('button');
+  openLogButton.type = 'button';
+  openLogButton.className = 'btn primary';
+  openLogButton.textContent = 'Open log';
+  const copyLogButton = document.createElement('button');
+  copyLogButton.type = 'button';
+  copyLogButton.className = 'btn quiet';
+  copyLogButton.textContent = 'Copy log';
+  logRow.append(openLogButton, copyLogButton);
+  logField.append(logLabel, logRow);
+  panel.append(logField);
+
+  backend.getLogPath().then((file) => {
+    if (file) logHint.textContent = `Records startup, game paths, launch commands, helper errors and process exits. File: ${file}`;
+  }).catch(() => {});
+
+  openLogButton.addEventListener('click', async () => {
+    try {
+      const result = await backend.openLog();
+      if (!result || result.ok === false) toast((result && result.error) || 'Could not open the launch log.');
+    } catch (error) {
+      toast(error.message || 'Could not open the launch log.');
+    }
+  });
+
+  copyLogButton.addEventListener('click', async () => {
+    copyLogButton.disabled = true;
+    try {
+      const text = await backend.readLog();
+      if (!text) {
+        toast('The launch log is empty.');
+        return;
+      }
+      const copied = await copyText(text);
+      toast(copied ? 'Launch log copied.' : 'Could not copy the launch log.');
+    } catch (error) {
+      toast(error.message || 'Could not read the launch log.');
+    } finally {
+      copyLogButton.disabled = false;
+    }
   });
 
   updateButton.addEventListener('click', async () => {
