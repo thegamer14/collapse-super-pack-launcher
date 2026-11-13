@@ -13,6 +13,20 @@ const LAUNCHER_DEFAULT_SETTINGS = {
   cloudName: '',
 };
 
+const DEMO_CODES = {
+  collapse: [
+    { code: 'eindhoven', reward: 'Clown outfit', source: 'collapse.exe' },
+    { code: 'paris', reward: 'Pirate outfit', source: 'collapse.exe' },
+  ],
+};
+
+const DEMO_CODE_GUIDE = {
+  collapse: {
+    where: 'In Collapse!, open the Redeem Codes screen and enter the code.',
+    search: 'Game-file search: these two promo-code strings are stored beside the Redeem Codes UI in collapse.exe. No other promo-code entries were found in the installed games; the other Paris, Pirate, and Clown matches are puzzle or avatar names.',
+  },
+};
+
 const DEMO_GAMES = [
   ['puzzle-gallery', 'Super Collapse! Puzzle Gallery', '2007'],
   ['puzzle-gallery-2', 'Super Collapse! Puzzle Gallery 2', '2008'],
@@ -25,7 +39,15 @@ const DEMO_GAMES = [
   ['puzzle-gallery-5', 'Super Collapse! Puzzle Gallery 5', '2009'],
   ['super-collapse-2', 'Super Collapse! II Platinum', '2005'],
   ['spongebob', 'SpongeBob SquarePants Collapse!', '2003'],
-].map(([art, title, year]) => ({ id: art, art, title, year, exists: true }));
+].map(([art, title, year]) => ({
+  id: art,
+  art,
+  title,
+  year,
+  exists: true,
+  codes: DEMO_CODES[art] || [],
+  codeGuide: DEMO_CODE_GUIDE[art] || null,
+}));
 
 const backend = window.launcher || {
   getLibrary: async () => ({ games: DEMO_GAMES }),
@@ -208,8 +230,22 @@ function buildTile(game, index) {
     openGameSettings(game);
   });
 
+  const codeEntries = Array.isArray(game.codes) ? game.codes : [];
   const playRow = document.createElement('div');
   playRow.className = 'play-row';
+  if (codeEntries.length) {
+    const codes = document.createElement('button');
+    codes.type = 'button';
+    codes.className = 'codes-btn';
+    codes.textContent = 'CODES';
+    codes.title = `View codes for ${game.title}`;
+    codes.setAttribute('aria-label', `View codes for ${game.title}`);
+    codes.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openCodes(game);
+    });
+    playRow.append(codes);
+  }
   playRow.append(play, gear);
   tile.append(face, playRow);
 
@@ -473,6 +509,103 @@ function showSheet(title, subtitle, onClose) {
   });
 
   return { panel, close };
+}
+
+async function copyText(value) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    /* fall back to the selection method below */
+  }
+  const area = document.createElement('textarea');
+  area.value = value;
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.append(area);
+  area.select();
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+  }
+}
+
+function openCodes(game) {
+  const entries = Array.isArray(game.codes) ? game.codes : [];
+  const guide = game.codeGuide || {};
+  const { panel, close } = showSheet(
+    `${game.title} codes`,
+    guide.where || 'Enter these codes in the game. The launcher only shows them; it does not edit your save.'
+  );
+
+  if (!entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'code-note';
+    empty.textContent = 'No promo codes were found for this game.';
+    panel.append(empty);
+  } else {
+    const list = document.createElement('div');
+    list.className = 'code-list';
+    entries.forEach((entry) => {
+      const card = document.createElement('div');
+      card.className = 'code-card';
+
+      const main = document.createElement('div');
+      main.className = 'code-main';
+      const reward = document.createElement('strong');
+      reward.className = 'code-reward';
+      reward.textContent = entry.reward || 'Reward';
+      const value = document.createElement('span');
+      value.className = 'code-value';
+      value.textContent = entry.code || '';
+      main.append(reward, value);
+      if (entry.source) {
+        const source = document.createElement('small');
+        source.className = 'code-source';
+        source.textContent = `Found in ${entry.source}`;
+        main.append(source);
+      }
+
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'btn primary copy-code';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        const copied = await copyText(entry.code || '');
+        copy.textContent = copied ? 'Copied' : 'Select';
+        toast(copied ? `${entry.reward || 'Code'} copied.` : 'Select the code text and copy it.');
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
+      });
+
+      card.append(main, copy);
+      list.append(card);
+    });
+    panel.append(list);
+  }
+
+  if (guide.search) {
+    const search = document.createElement('p');
+    search.className = 'code-note code-search';
+    search.textContent = guide.search;
+    panel.append(search);
+  }
+
+  const footer = document.createElement('footer');
+  const grow = document.createElement('span');
+  grow.className = 'grow';
+  const done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'btn';
+  done.textContent = 'Done';
+  done.addEventListener('click', close);
+  footer.append(grow, done);
+  panel.append(footer);
+  done.focus();
 }
 
 function settingsRow(parent, title, hint, control) {

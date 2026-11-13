@@ -10,6 +10,7 @@ const { CloudClient } = require('./cloud');
 const discord = require('./discord');
 const gameSaves = require('./game-saves');
 const gamePatches = require('./game-patches');
+const { GAME_CODES, CODE_GUIDES } = require('./game-codes');
 
 const ROOT = path.resolve(__dirname, '..');          // CollapseLauncher/, or app/ inside a build
 
@@ -194,6 +195,8 @@ function decorate(library) {
       ...game,
       exists: Boolean(game.path) && fs.existsSync(game.path),
       native: NATIVE_SIZES[game.id] || null,
+      codes: GAME_CODES[game.id] || [],
+      codeGuide: CODE_GUIDES[game.id] || null,
     })),
   };
 }

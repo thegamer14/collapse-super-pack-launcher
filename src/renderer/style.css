@@ -260,6 +260,30 @@ body {
 
 .play.missing .label { height: 31px; }
 
+/* CODES sits beside PLAY, separate from the settings gear */
+.codes-btn {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 0 11px 1px;
+  border: 3px solid #32145f;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #b37aff 0%, #8a47e4 28%, #6a28bf 60%, #4b188f 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(240, 225, 255, 0.6),
+    0 3px 0 #291050,
+    0 8px 12px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-family: 'Bungee', 'Arial Black', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.55px;
+  cursor: pointer;
+  transition: filter 100ms ease, transform 90ms ease;
+}
+
+.codes-btn:hover { filter: brightness(1.13); }
+.codes-btn:active { transform: translateY(2px); }
+.codes-btn:focus-visible { outline: 3px solid #ffe680; outline-offset: 3px; }
+
 /* --------------------------------------------------------------- gears */
 .gear {
   display: grid;
@@ -693,6 +717,63 @@ body {
   text-align: center;
   color: #93a9cc;
   font-size: 12.5px;
+}
+
+.code-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.code-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: #0e1726;
+}
+
+.code-main {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.code-reward { color: #fff; font-size: 13.5px; font-weight: 600; }
+
+.code-value {
+  color: #ffe680;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  user-select: text;
+  word-break: break-all;
+}
+
+.code-source { color: #7f95b8; font-size: 11px; }
+
+.copy-code {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 8px 12px 9px;
+  font-size: 12px;
+}
+
+.code-note {
+  margin: 12px 0 0;
+  color: #9fb4d6;
+  font-size: 12px;
+  line-height: 1.45;
+  user-select: text;
+}
+
+.code-search {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sheet .pathbox {

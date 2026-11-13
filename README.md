@@ -90,6 +90,24 @@ There are two gears, and they save different things.
 - **Run as administrator** — starts the game through a UAC prompt, which some of
   these titles need before they can write a save file.
 
+### Codes
+
+When a game has verified promo codes, a **CODES** button appears beside its
+PLAY button (on the box, separate from the settings gear). The list is in
+`src/game-codes.js`.
+
+Collapse! (2010) has two codes found directly in `collapse.exe`, next to the
+Redeem Codes UI strings:
+
+- **`eindhoven`** — Clown outfit
+- **`paris`** — Pirate outfit
+
+The launcher searched the installed collection and found no other promo-code
+entries. Paris, Pirates, and Clown also occur elsewhere as puzzle themes,
+puzzle artwork, and avatar names, but those are not redeem codes. The codes
+button only appears for games with a verified code entry; the launcher shows and
+copies the codes but does not apply them to a save.
+
 ### Progress, cloud and Discord
 
 The game gear also has **Unlock all progress**, **Back up save** and
