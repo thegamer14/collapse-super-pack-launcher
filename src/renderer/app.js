@@ -29,13 +29,13 @@ const DEMO_CODE_GUIDE = {
 
 const DEMO_GAMES = [
   ['puzzle-gallery', 'Super Collapse! Puzzle Gallery', '2007'],
-  ['puzzle-gallery-2', 'Super Collapse! Puzzle Gallery 2', '2008'],
-  ['puzzle-gallery-3', 'Super Collapse! Puzzle Gallery 3', '2009'],
+  ['puzzle-gallery-2', 'Super Collapse! Puzzle Gallery 2', '2007'],
+  ['puzzle-gallery-3', 'Super Collapse! Puzzle Gallery 3', '2008'],
   ['super-collapse-3', 'Super Collapse! 3', '2006'],
-  ['sc1', 'Super Collapse!', '2002'],
+  ['sc1', 'Super Collapse!', '2001'],
   ['crunch', 'Collapse! Crunch', '2004'],
-  ['collapse', 'Collapse!', '2010'],
-  ['puzzle-gallery-4', 'Super Collapse! Puzzle Gallery 4', '2009'],
+  ['collapse', 'Collapse!', '2009'],
+  ['puzzle-gallery-4', 'Super Collapse! Puzzle Gallery 4', '2008'],
   ['puzzle-gallery-5', 'Super Collapse! Puzzle Gallery 5', '2009'],
   ['super-collapse-2', 'Super Collapse! II Platinum', '2005'],
   ['spongebob', 'SpongeBob SquarePants Collapse!', '2003'],

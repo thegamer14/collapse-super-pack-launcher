@@ -43,20 +43,33 @@ const DEFAULT_SETTINGS = {
 /** The games that ship in this collection, in the order the launcher shows them. */
 const DEFAULT_GAMES = [
   { id: 'puzzle-gallery',  title: 'Super Collapse! Puzzle Gallery',   year: '2007', art: 'puzzle-gallery',   path: 'SuperCollapsePuzzleGallery/CollapsePuzzle.exe' },
-  { id: 'puzzle-gallery-2', title: 'Super Collapse! Puzzle Gallery 2', year: '2008', art: 'puzzle-gallery-2', path: 'supercollapsepuzzlegallery2/CollapsePuzzle2.exe' },
-  { id: 'puzzle-gallery-3', title: 'Super Collapse! Puzzle Gallery 3', year: '2009', art: 'puzzle-gallery-3', path: 'SuperCollapsePuzzleGallery3/CollapsePuzzle3.exe' },
+  { id: 'puzzle-gallery-2', title: 'Super Collapse! Puzzle Gallery 2', year: '2007', art: 'puzzle-gallery-2', path: 'supercollapsepuzzlegallery2/CollapsePuzzle2.exe' },
+  { id: 'puzzle-gallery-3', title: 'Super Collapse! Puzzle Gallery 3', year: '2008', art: 'puzzle-gallery-3', path: 'SuperCollapsePuzzleGallery3/CollapsePuzzle3.exe' },
   { id: 'super-collapse-3', title: 'Super Collapse! 3',                year: '2006', art: 'sc3',              path: 'SuperCollapse3/SuperCollapseIII.exe' },
   // both of these were sold inside trial launchers; see README "Trial wrappers"
   // the 2003 Reflexive Arcade copy in "Super Collapse" is ASProtect-packed and
   // cannot unpack on current Windows; the 2002 GameHouse build runs as-is
-  { id: 'super-collapse',  title: 'Super Collapse!',                  year: '2002', art: 'sc1',              path: 'Super Collapse!/Collapse.exe' },
+  { id: 'super-collapse',  title: 'Super Collapse!',                  year: '2001', art: 'sc1',              path: 'Super Collapse!/Collapse.exe' },
   { id: 'collapse-crunch', title: 'Collapse! Crunch',                 year: '2004', art: 'crunch',           path: 'Collapse! Crunch/unpacked/Collapse3.exe' },
-  { id: 'collapse',        title: 'Collapse!',                        year: '2010', art: 'collapse',         path: 'collapse!/collapse.exe' },
-  { id: 'puzzle-gallery-4', title: 'Super Collapse! Puzzle Gallery 4', year: '2009', art: 'puzzle-gallery-4', path: 'supercollapsepuzzlegallery4/CollapsePuzzle4.exe' },
+  { id: 'collapse',        title: 'Collapse!',                        year: '2009', art: 'collapse',         path: 'collapse!/collapse.exe' },
+  { id: 'puzzle-gallery-4', title: 'Super Collapse! Puzzle Gallery 4', year: '2008', art: 'puzzle-gallery-4', path: 'supercollapsepuzzlegallery4/CollapsePuzzle4.exe' },
   { id: 'puzzle-gallery-5', title: 'Super Collapse! Puzzle Gallery 5', year: '2009', art: 'puzzle-gallery-5', path: 'supercollapsepuzzlegallery5/PuzzleGallery5.exe' },
   { id: 'super-collapse-2', title: 'Super Collapse! II Platinum',     year: '2005', art: 'sc2',              path: 'supercollapseiiplatinum/SC2Platinum.exe' },
   { id: 'spongebob-collapse', title: 'SpongeBob SquarePants Collapse!', year: '2003', art: 'spongebob',      path: 'Super-SpongeBob-SquarePants-Collapse_Win_EN_Full-Rip/SBCollapse.exe' },
 ];
+
+/* Release years shown on the game tiles. These follow the series table, not
+   the build date or the copyright year printed inside an individual copy. */
+const RELEASE_YEARS = {
+  'puzzle-gallery-2': '2007',
+  'puzzle-gallery-3': '2008',
+  'puzzle-gallery-4': '2008',
+  'super-collapse': '2001',
+  'super-collapse-2': '2005',
+  'spongebob-collapse': '2003',
+  'collapse-crunch': '2004',
+  collapse: '2009',
+};
 
 /* What each engine actually draws at, and whether it re-renders when its window
    is resized. Everything here comes from measuring the shipping games: the
@@ -140,6 +153,17 @@ function readLibrary() {
         };
         writeLibrary(parsed);
       }
+      // Existing libraries keep their old labels until they are touched. Fix
+      // the known series dates here so current installs update automatically.
+      let yearsChanged = false;
+      for (const game of parsed.games) {
+        const year = RELEASE_YEARS[game.id];
+        if (year && game.year !== year) {
+          game.year = year;
+          yearsChanged = true;
+        }
+      }
+      if (yearsChanged) writeLibrary(parsed);
       return parsed;
     }
   } catch {
