@@ -1001,6 +1001,8 @@ function openGameSettings(game) {
 
   let musicFix = current.musicFix !== false;
   let musicToggle = null;
+  let widescreenFix = current.widescreenFix !== false;
+  let widescreenToggle = null;
   if (game.id === 'collapse') {
     musicToggle = toggleControl({ value: musicFix, onChange: (value) => { musicFix = value; } });
     settingsRow(
@@ -1008,6 +1010,13 @@ function openGameSettings(game) {
       'Continuous mode music fix',
       'Repoints the game’s MUSIC_GAME stream to the Continuous track. The original resources.xml is backed up beside it.',
       musicToggle
+    );
+    widescreenToggle = toggleControl({ value: widescreenFix, onChange: (value) => { widescreenFix = value; } });
+    settingsRow(
+      panel,
+      'Widescreen content fix',
+      'Turns on the engine’s widescreen viewport so the 4:3 canvas no longer gets side bars. The original application.xml is backed up beside it.',
+      widescreenToggle
     );
   }
 
@@ -1114,7 +1123,9 @@ function openGameSettings(game) {
     chosenScaling = 'fit';
     chosenFilter = 'smooth';
     musicFix = true;
+    widescreenFix = true;
     if (musicToggle) musicToggle.checked = true;
+    if (widescreenToggle) widescreenToggle.checked = true;
     for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === 'scaled');
     for (const [key, el] of Object.entries(sizeButtons)) el.classList.toggle('on', key === '');
     for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === 'fit');
@@ -1133,6 +1144,7 @@ function openGameSettings(game) {
           scaling: chosenScaling,
           filter: chosenFilter,
           musicFix,
+          widescreenFix,
           windowWidth: chosenSize ? Number(chosenSize.split('x')[0]) : null,
           windowHeight: chosenSize ? Number(chosenSize.split('x')[1]) : null,
         },

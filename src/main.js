@@ -135,7 +135,7 @@ function readLibrary() {
       if (collapse && !collapse.settings) {
         collapse.settings = {
           args: '', cwd: null, admin: false,
-          display: 'scaled', scaling: 'fill', filter: 'smooth', musicFix: true,
+          display: 'scaled', scaling: 'fill', filter: 'smooth', musicFix: true, widescreenFix: true,
           windowWidth: 1920, windowHeight: 1080,
         };
         writeLibrary(parsed);
@@ -307,6 +307,7 @@ ipcMain.handle('game:update', (_event, { id, settings }) => {
     scaling: patch.scaling === 'fill' ? 'fill' : 'fit',
     filter: patch.filter === 'nearest' ? 'nearest' : 'smooth',
     musicFix: patch.musicFix !== false,
+    widescreenFix: patch.widescreenFix !== false,
     windowWidth: Number.isFinite(width) && width >= 640 ? Math.round(width) : null,
     windowHeight: Number.isFinite(height) && height >= 480 ? Math.round(height) : null,
   };
@@ -334,6 +335,8 @@ ipcMain.handle('game:launch', async (_event, id) => {
   if (game.id === 'collapse') {
     const music = gamePatches.setMusicFix(game.path, settings.musicFix !== false);
     if (!music.ok) warning = music.error;
+    const widescreen = gamePatches.setWidescreenFix(game.path, settings.widescreenFix !== false);
+    if (!widescreen.ok && !warning) warning = widescreen.error;
   }
 
   // Scaled is the whole point of BitBit, so it has to work for scalable games

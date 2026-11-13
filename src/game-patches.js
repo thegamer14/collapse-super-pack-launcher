@@ -38,4 +38,29 @@ function setMusicFix(gamePath, enabled) {
   }
 }
 
-module.exports = { setMusicFix, collapseResources, COLLAPSE_MUSIC };
+function collapseApplication(gamePath) {
+  return path.join(path.dirname(gamePath), 'properties', 'application.xml');
+}
+
+/* Collapse! opens a 1024x768 canvas but its engine can present a widescreen
+   viewport. The shipping application.xml says widescreencontent="false", which
+   letterboxes the 4:3 canvas inside a 16:9 window. This toggle flips only that
+   flag; the untouched file is kept beside it. */
+function setWidescreenFix(gamePath, enabled) {
+  try {
+    const xmlPath = collapseApplication(gamePath);
+    if (!fs.existsSync(xmlPath)) return { ok: false, error: 'Collapse! application.xml was not found.' };
+    const backup = ensureBackup(xmlPath);
+    const source = enabled ? fs.readFileSync(xmlPath, 'utf8') : fs.readFileSync(backup, 'utf8');
+    const line = /(<Data\s+name="application"[^>]*widescreencontent=")[^"]+(")/;
+    if (!line.test(source)) return { ok: false, error: 'The widescreencontent setting was not found in application.xml.' };
+
+    const next = source.replace(line, `$1${enabled ? 'true' : 'false'}$2`);
+    if (next !== fs.readFileSync(xmlPath, 'utf8')) fs.writeFileSync(xmlPath, next);
+    return { ok: true, patched: enabled, backup };
+  } catch (error) {
+    return { ok: false, error: `Could not update Collapse! widescreen setting: ${error.message}` };
+  }
+}
+
+module.exports = { setMusicFix, setWidescreenFix, collapseResources, collapseApplication, COLLAPSE_MUSIC };

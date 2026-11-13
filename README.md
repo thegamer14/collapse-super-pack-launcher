@@ -137,6 +137,14 @@ the tile through renames and relocations.
 
 ## Display: BitBit
 
+Collapse! (2010) also has an engine-level `widescreencontent` flag in
+`properties/application.xml`. The shipping value is `false`, which makes the
+game draw its 4:3 canvas letterboxed inside a 16:9 window. The launcher sets the
+flag to `true` at launch (keeping the original as
+`application.xml.launcher-original`) and exposes a **Widescreen content fix**
+toggle in the game's gear. This is the fix for side bars that survive even when
+the game is already fullscreen.
+
 Every game here except Collapse! (2010) paints a fixed 640×480 or 800×600
 surface and ignores its window size, so no setting inside the game can make it
 bigger. **BitBit** (`tools/bitbit/BitBit.exe`) is the upscaler that fixes that: a
