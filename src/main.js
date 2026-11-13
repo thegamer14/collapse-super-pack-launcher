@@ -195,6 +195,21 @@ function sortGamesByYear(games) {
   return games.slice().sort((a, b) => releaseYear(a) - releaseYear(b));
 }
 
+/** Compares paths the way Windows would, even when the files do not exist. */
+function samePath(left, right) {
+  if (!left || !right) return false;
+  const normalize = (value) => path.normalize(path.resolve(value)).toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+/** The copy of a known bundled game that sits in this launcher's folder. */
+function bundledGamePath(game) {
+  const bundled = DEFAULT_GAMES.find((candidate) => candidate.id === game.id && candidate.path);
+  if (!bundled) return null;
+  const candidate = path.join(GAMES_DIR, bundled.path);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
 function readLibrary() {
   try {
     const parsed = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'));
@@ -221,16 +236,31 @@ function readLibrary() {
           changed = true;
         }
       }
-      // A library carried between PCs keeps absolute paths that no longer
-      // exist. Relink any missing bundled game from this launcher's own folder
-      // before showing Locate.
+      // Prefer the copy of each known game that sits in this launcher's
+      // folder. A portable library carried from an older location can still
+      // hold valid absolute paths, so checking only for missing files would
+      // leave it launching games from the old folder. A location chosen with
+      // Locate is marked manual and is preserved instead.
       for (const game of parsed.games) {
-        if (game.path && fs.existsSync(game.path)) continue;
-        const bundled = DEFAULT_GAMES.find((candidate) => candidate.id === game.id && candidate.path);
-        if (!bundled) continue;
-        const candidate = path.join(GAMES_DIR, bundled.path);
-        if (!fs.existsSync(candidate)) continue;
+        const candidate = bundledGamePath(game);
+        if (!candidate) continue;
+        const currentExists = Boolean(game.path) && fs.existsSync(game.path);
+        const manual = game.pathSource === 'manual';
+        if (manual && currentExists) continue;
+        if (samePath(game.path, candidate)) {
+          if (game.pathSource !== 'auto') {
+            game.pathSource = 'auto';
+            changed = true;
+          }
+          continue;
+        }
+        logger.log(manual ? 'manual game path is missing; using bundled copy' : 'game path updated from launcher folder', {
+          id: game.id,
+          previous: game.path || null,
+          next: candidate,
+        });
         game.path = candidate;
+        game.pathSource = 'auto';
         changed = true;
       }
       const ordered = sortGamesByYear(parsed.games);
@@ -245,7 +275,11 @@ function readLibrary() {
     /* first run or unreadable file: start from the defaults */
   }
   const library = {
-    games: sortGamesByYear(DEFAULT_GAMES.map((g) => ({ ...g, path: g.path ? path.join(GAMES_DIR, g.path) : null }))),
+    games: sortGamesByYear(DEFAULT_GAMES.map((g) => ({
+      ...g,
+      path: g.path ? path.join(GAMES_DIR, g.path) : null,
+      pathSource: 'auto',
+    }))),
   };
   writeLibrary(library);
   return library;
@@ -635,7 +669,11 @@ ipcMain.handle('game:register', (_event, { path: exePath, id }) => {
 
   if (id) {
     const game = library.games.find((g) => g.id === id);
-    if (game) game.path = exePath;
+    if (game) {
+      game.path = exePath;
+      game.pathSource = 'manual';
+      logger.log('game path set manually', { id: game.id, path: exePath });
+    }
   } else {
     const base = path.basename(exePath, path.extname(exePath));
     const title = base
@@ -647,7 +685,7 @@ ipcMain.handle('game:register', (_event, { path: exePath, id }) => {
     let unique = slug;
     let n = 2;
     while (library.games.some((g) => g.id === unique)) unique = `${slug}-${n++}`;
-    library.games.push({ id: unique, title, year: '', art: 'default', path: exePath, added: true });
+    library.games.push({ id: unique, title, year: '', art: 'default', path: exePath, pathSource: 'manual', added: true });
   }
 
   writeLibrary(library);

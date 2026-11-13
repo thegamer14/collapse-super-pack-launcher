@@ -12,8 +12,10 @@ Double-click **Collapse Super Pack.exe** in the collection folder (the folder
 holding `SuperCollapse3`, `collapse!`, `Collapse! Crunch` and the rest). It needs
 nothing installed — the exe carries Electron, the art and BitBit with it — and it
 finds the games by looking in the folder it was started from, so the launcher and
-the games stay together. The first launch takes a few seconds while the exe
-unpacks itself; after that it is quick.
+the games stay together. On each start it refreshes the paths for the known games
+from that folder, even if the saved library still points at an older location. A
+path chosen with **Locate** is kept as a manual override. The first launch takes
+a few seconds while the exe unpacks itself; after that it is quick.
 
 It is not signed with a code-signing certificate, so Windows may show a
 SmartScreen "unrecognised app" prompt the first time: **More info → Run anyway**.
