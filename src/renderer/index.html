@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'">
+  <title>Super Collapse Super Pack</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="title">
+      <img class="word" src="../../assets/title-collapse.png" alt="Collapse!">
+      <img class="sub" src="../../assets/title-superpack.png" alt="Super Pack">
+    </div>
+
+    <div class="rows">
+      <div class="row" id="row-top"></div>
+      <div class="row" id="row-bottom"></div>
+    </div>
+
+    <div class="footer">
+      <button class="ghost" id="add-game" type="button">
+        <span class="plus">+</span> Add game
+      </button>
+      <span class="count" id="count"></span>
+      <span class="spacer"></span>
+      <button class="gear" id="launcher-settings" type="button"
+              title="Launcher settings" aria-label="Launcher settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M19.14 12.94a7.1 7.1 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.88 2h-3.76a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.61.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.1 7.1 0 0 0 0 1.88L2.83 14.16a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.33.61.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.24.42.5.42h3.76c.26 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.18.11.47.02.61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <div class="menu" id="menu" hidden>
+    <button type="button" data-action="launch">Play</button>
+    <button type="button" data-action="relocate">Locate executable…</button>
+    <button type="button" data-action="reveal">Show in folder</button>
+    <button type="button" data-action="rename">Rename…</button>
+    <button type="button" data-action="settings">Game settings…</button>
+    <button type="button" data-action="remove">Remove from launcher</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

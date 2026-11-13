@@ -1,0 +1,54 @@
+{
+  "name": "collapse-super-pack-launcher",
+  "productName": "Collapse Super Pack",
+  "version": "1.0.0",
+  "description": "Launcher for the Collapse! / Super Collapse! collection",
+  "author": "Collapse Super Pack",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.collapsesuperpack.launcher",
+    "productName": "Collapse Super Pack",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "data/*.json",
+      "tools/bitbit/BitBit.exe",
+      "tools/fullscreen-launch.ps1",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "tools/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Collapse Super Pack.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "discord-rpc": "^4.0.1"
+  }
+}

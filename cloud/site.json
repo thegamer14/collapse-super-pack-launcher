@@ -1,0 +1,8 @@
+{
+  "siteId": "eec8a418-701d-4803-a14a-a36201d26284",
+  "name": "Collapse Cloud",
+  "environment": "preview",
+  "url": "https://site-21d01c0b2ef446f7b99c1c01574e93d1.freebuff.page",
+  "binding": "DB",
+  "manifest": "sites.json"
+}

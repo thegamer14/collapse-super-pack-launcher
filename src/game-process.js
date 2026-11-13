@@ -1,0 +1,245 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+
+/**
+ * Windows cannot start a file that lives inside app.asar, so the build keeps
+ * the helper tools unpacked beside it (see "asarUnpack" in package.json) and
+ * this maps the in-archive path onto that copy.
+ */
+function onDisk(target) {
+  const marker = `app.asar${path.sep}`;
+  return target.includes(marker) ? target.replace(marker, `app.asar.unpacked${path.sep}`) : target;
+}
+
+/**
+ * Starts a game executable detached from the launcher.
+ *
+ * All of these titles are old enough that their own trial wrappers are the
+ * fragile part, not the games: the launcher therefore points at the game
+ * binary itself wherever that is possible (see README, "Trial wrappers").
+ */
+
+/** Reads a PE image's section names, cheaply. */
+function sectionNames(exePath) {
+  let fd;
+  try {
+    fd = fs.openSync(exePath, 'r');
+    const head = Buffer.alloc(4096);
+    const read = fs.readSync(fd, head, 0, head.length, 0);
+    if (read < 0x40 || head.toString('latin1', 0, 2) !== 'MZ') return [];
+    const pe = head.readUInt32LE(0x3c);
+    if (pe + 24 > read || head.toString('latin1', pe, pe + 2) !== 'PE') return [];
+    const count = head.readUInt16LE(pe + 6);
+    const optSize = head.readUInt16LE(pe + 20);
+    const names = [];
+    for (let i = 0; i < count; i++) {
+      const at = pe + 24 + optSize + i * 40;
+      if (at + 8 > read) break;
+      names.push(head.toString('latin1', at, at + 8).replace(/\0+$/, ''));
+    }
+    return names;
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * ASProtect-packed executables cannot unpack on current Windows: their stub
+ * decodes the real game into a buffer and then dies before any of it runs.
+ * The 2003 GameHouse trial of Super Collapse! is one of these, and the section
+ * table is enough to recognise it (`Collapse.exe` keeps an `.adata` section and
+ * blank names for the original ones).
+ */
+function packerBlocker(exePath) {
+  const names = sectionNames(exePath);
+  if (!names.some((name) => name === '.adata')) return null;
+  return {
+    ok: false,
+    error:
+      'This copy is packed with ASProtect, a 2003 protector that cannot unpack on ' +
+      'Windows 11 — the game code never loads. The 2002 GameHouse build in ' +
+      '"Super Collapse!/Collapse.exe" runs fine; use Locate to point this tile at it.',
+  };
+}
+
+/** Splits a command-line string, honouring double and single quotes. */
+function parseArgs(text) {
+  if (!text || !String(text).trim()) return [];
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match;
+  while ((match = re.exec(String(text))) !== null) {
+    out.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return out;
+}
+
+/** Where the game should run from: an override, else the folder holding it. */
+function workingDirectory(exePath, options) {
+  if (options && options.cwd && fs.existsSync(options.cwd)) return options.cwd;
+  return path.dirname(exePath);
+}
+
+/**
+ * Starts the game as administrator through PowerShell's Start-Process, which
+ * raises the usual UAC prompt. Values travel through the environment so no
+ * quoting of the path or arguments is needed.
+ */
+function launchElevated(exePath, args, cwd) {
+  const script =
+    '$r = Start-Process -FilePath $env:LAUNCH_EXE -WorkingDirectory $env:LAUNCH_CWD' +
+    ' -ArgumentList $env:LAUNCH_ARGS -Verb RunAs -PassThru; $r.WaitForExit()';
+  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    env: {
+      ...process.env,
+      LAUNCH_EXE: exePath,
+      LAUNCH_CWD: cwd,
+      LAUNCH_ARGS: args.join(' '),
+    },
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.on('error', (error) => console.error('elevated launch failed:', error.message));
+  child.unref();
+  return child;
+}
+
+/** Starts the game detached, with the game's folder as the working directory. */
+function launchPlain(exePath, options) {
+  const args = parseArgs(options && options.args);
+  const cwd = workingDirectory(exePath, options);
+  const isScript = ['.bat', '.cmd'].includes(path.extname(exePath).toLowerCase());
+
+  if (options && options.admin) return launchElevated(exePath, args, cwd);
+
+  const child = isScript
+    ? spawn('cmd.exe', ['/c', exePath, ...args], {
+        cwd,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+    : spawn(exePath, args, { cwd, detached: true, stdio: 'ignore' });
+  child.on('error', (error) => console.error('launch failed:', error.message));
+  child.unref();
+  return child;
+}
+
+/**
+ * Starts a game executable detached from the launcher.
+ * The working directory matters: these games load assets relative to it.
+ */
+function launchExecutable(exePath, options = {}) {
+  if (!exePath) return { ok: false, error: 'No executable is set for this game.' };
+  if (!fs.existsSync(exePath)) {
+    return { ok: false, error: 'That file is missing. Use Locate to point the launcher at it.' };
+  }
+
+  const blocked = packerBlocker(exePath);
+  if (blocked) return blocked;
+
+  try {
+    launchPlain(exePath, options);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+/* BitBit is our own little dgVoodoo: it presents a fixed-resolution game at a
+   modern resolution, at the monitor's refresh rate, with the real cursor. */
+const SCALER = onDisk(path.join(__dirname, '..', 'tools', 'bitbit', 'BitBit.exe'));
+
+function scalerAvailable() {
+  return fs.existsSync(SCALER);
+}
+
+/**
+ * Starts a game through BitBit at a chosen resolution.
+ * `windowWidth`/`windowHeight` is the presentation size (null = whole screen)
+ * and `scaling` picks letterboxed ('fit') or stretched widescreen ('fill').
+ */
+function launchScaled(exePath, options = {}) {
+  if (!scalerAvailable()) {
+    return { ok: false, error: 'The upscaler (tools/bitbit/BitBit.exe) is missing.' };
+  }
+
+  const args = parseArgs(options.args);
+  const cwd = workingDirectory(exePath, options);
+  const scalerArgs = ['--exe', exePath, '--cwd', cwd];
+  if (args.length) scalerArgs.push('--args', args.join(' '));
+  if (options.windowWidth && options.windowHeight) {
+    scalerArgs.push('--width', String(options.windowWidth), '--height', String(options.windowHeight));
+  }
+  if (options.scaling === 'fill') scalerArgs.push('--stretch');
+  if (options.filter === 'nearest') scalerArgs.push('--nearest');
+
+  try {
+    const child = spawn(SCALER, scalerArgs, { cwd, detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', (error) => console.error('scaled launch failed:', error.message));
+    // BitBit restores the cursor scheme itself; this covers a crash
+    child.on('exit', () => {
+      try {
+        spawn(SCALER, ['--restore-cursors'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      } catch { /* nothing to recover */ }
+    });
+    child.unref();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
+ * Starts a game in the display helper's window mode: a plain, optionally sized
+ * window. Used when the player asks for the game's own window.
+ */
+function launchWindowed(exePath, options = {}) {
+  const psArgs = [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', onDisk(path.join(__dirname, '..', 'tools', 'fullscreen-launch.ps1')),
+    '-Exe', exePath,
+    '-Mode', 'window',
+  ];
+  if (options.windowWidth && options.windowHeight) {
+    psArgs.push('-WindowWidth', String(options.windowWidth), '-WindowHeight', String(options.windowHeight));
+  }
+  const args = parseArgs(options.args);
+  if (args.length) psArgs.push('-Arguments', args.join(' '));
+
+  try {
+    const child = spawn('powershell.exe', psArgs, {
+      cwd: path.dirname(exePath),
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.on('error', (error) => console.error('display launch failed:', error.message));
+    child.unref();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+/** Runs a game the way its per-game settings ask for. */
+function launchWithDisplay(exePath, options = {}) {
+  if (!exePath) return { ok: false, error: 'No executable is set for this game.' };
+  if (!fs.existsSync(exePath)) {
+    return { ok: false, error: 'That file is missing. Use Locate to point the launcher at it.' };
+  }
+
+  const blocked = packerBlocker(exePath);
+  if (blocked) return blocked;
+
+  const wantsScaled = options.display === 'scaled' || options.display === 'fullscreen';
+  return wantsScaled ? launchScaled(exePath, options) : launchWindowed(exePath, options);
+}
+
+module.exports = { launchExecutable, launchWithDisplay, launchScaled, scalerAvailable };

@@ -1,0 +1,27 @@
+'use strict';
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('launcher', {
+  getLibrary: () => ipcRenderer.invoke('library:get'),
+  launch: (id) => ipcRenderer.invoke('game:launch', id),
+  reveal: (id) => ipcRenderer.invoke('game:reveal', id),
+  remove: (id) => ipcRenderer.invoke('game:remove', id),
+  register: (payload) => ipcRenderer.invoke('game:register', payload),
+  rename: (payload) => ipcRenderer.invoke('game:rename', payload),
+  pick: (options) => ipcRenderer.invoke('game:pick', options),
+  pickFolder: (options) => ipcRenderer.invoke('folder:pick', options),
+  updateGame: (payload) => ipcRenderer.invoke('game:update', payload),
+  unlock: (id) => ipcRenderer.invoke('game:unlock', id),
+  saveInfo: (id) => ipcRenderer.invoke('game:save-info', id),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
+  fitWindow: (width, height) => ipcRenderer.invoke('window:fit', width, height),
+  cloudHealth: () => ipcRenderer.invoke('cloud:health'),
+  leaderboard: (payload) => ipcRenderer.invoke('cloud:leaderboard', payload),
+  submitScore: (payload) => ipcRenderer.invoke('cloud:submit-score', payload),
+  backupSave: (id) => ipcRenderer.invoke('cloud:backup-save', id),
+  restoreSave: (id) => ipcRenderer.invoke('cloud:restore-save', id),
+  discordStatus: () => ipcRenderer.invoke('discord:status'),
+  reconnectDiscord: () => ipcRenderer.invoke('discord:reconnect'),
+});
