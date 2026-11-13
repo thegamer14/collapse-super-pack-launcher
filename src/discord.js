@@ -1,8 +1,9 @@
 'use strict';
 
-/* Discord Rich Presence is optional: without a Discord application client ID
-   the launcher must behave exactly as it did before. The module therefore
-   never throws and only loads discord-rpc when the player enables it. */
+/* Discord Rich Presence is optional: it can be switched off or use a custom
+   application ID. The module therefore never throws and only loads
+   discord-rpc when presence is enabled. The application's public key is not
+   used by local Rich Presence; only the client ID is needed. */
 
 let RPC = null;
 let client = null;
@@ -22,18 +23,19 @@ function loadRpc() {
   return RPC;
 }
 
+const BOX_ART_URL = 'https://raw.githubusercontent.com/thegamer14/collapse-super-pack-launcher/main/assets/boxes/';
+
+function boxArt(game) {
+  const art = String((game && game.art) || 'default').toLowerCase();
+  return /^[a-z0-9-]+$/.test(art) ? `${BOX_ART_URL}${art}.png` : `${BOX_ART_URL}default.png`;
+}
+
 function activityFor(game) {
-  if (game) {
-    return {
-      details: String(game.title || 'A Collapse game').slice(0, 128),
-      state: 'Super Collapse Super Pack',
-      startTimestamp: new Date(),
-      instance: false,
-    };
-  }
   return {
-    details: 'Browsing the collection',
+    details: game ? String(game.title || 'A Collapse game').slice(0, 128) : 'Browsing the collection',
     state: 'Super Collapse Super Pack',
+    largeImageKey: boxArt(game),
+    largeImageText: game ? String(game.title || 'Super Collapse Super Pack').slice(0, 128) : 'Super Collapse Super Pack',
     startTimestamp: new Date(),
     instance: false,
   };
@@ -128,6 +130,7 @@ function status() {
     enabled: Boolean(activeClientId),
     connected: ready,
     starting,
+    game: currentGame ? currentGame.title : null,
   };
 }
 

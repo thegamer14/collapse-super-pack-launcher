@@ -573,6 +573,12 @@ body {
   max-width: 245px;
 }
 
+.sheet-panel .sub.discord-status {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: #93a9cc;
+}
+
 .segments {
   display: flex;
   flex: 0 0 auto;

@@ -108,10 +108,11 @@ Redeem Codes UI strings:
 - **`paris`** — Pirate outfit
 
 The launcher searched the installed collection and found no other promo-code
-entries. Paris, Pirates, and Clown also occur elsewhere as puzzle themes,
-puzzle artwork, and avatar names, but those are not redeem codes. The codes
-button only appears for games with a verified code entry; the launcher shows and
-copies the codes but does not apply them to a save.
+entries. `paris` is the code for the Pirate outfit, not an outfit name. Other
+Pirate and Clown matches occur elsewhere as puzzle themes, puzzle artwork, and
+avatar names, but those are not redeem codes. The codes button only appears for
+games with a verified code entry; the launcher shows and copies the codes but
+does not apply them to a save.
 
 ### Progress, cloud and Discord
 
@@ -132,11 +133,21 @@ board. Because the original games' saves are encrypted, leaderboard scores are
 submitted from the **Leaderboard** sheet rather than scraped out of the save
 file.
 
-Discord Rich Presence is opt-in. Create an application at
-[discord.com/developers/applications](https://discord.com/developers/applications),
-copy its **Application ID** into **Launcher settings**, and enable the toggle.
-The launcher never asks for a bot token, and simply stays disconnected when
-Discord is not running.
+Discord Rich Presence is on by default and uses the launcher's own Discord
+application (`1570871731571134615`). Turn it off with **Show what I am playing**
+in **Launcher settings**. The application field is only there if you want to use
+a different Discord application; a bot token is never needed, and the launcher
+simply stays disconnected when Discord is not running.
+
+Rich Presence only needs the Discord **Application ID**. The application's
+**Public Key** is the `verify_key` for Discord Embedded App/Activity requests
+and is not used by local Rich Presence.
+
+While the launcher is open it follows any of the collection's games, including
+ones started from Explorer, and shows the matching cover art on the Discord
+activity card. If the activity does not appear on your Discord profile, check
+**User Settings → Activity Sharing** and make sure **Share my activity** is on
+and your status is not set to **Invisible**.
 
 Those live on the game in `data/library.json` under `settings`, so they follow
 the tile through renames and relocations.

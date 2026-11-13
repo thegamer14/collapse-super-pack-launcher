@@ -7,7 +7,7 @@
   to its Redeem Codes UI strings. The game is case-insensitive for promo-code
   input; the values are kept lowercase and displayed exactly as copied.
 
-  The other Paris/Pirate/Clown strings in this collection belong to puzzle
+  The other Pirate and Clown strings in this collection belong to puzzle
   themes, avatar names, or puzzle artwork. They are not redeem codes, so they
   are deliberately not listed here.
 */
@@ -21,7 +21,7 @@ const GAME_CODES = {
 const CODE_GUIDES = {
   collapse: {
     where: 'In Collapse!, open the Redeem Codes screen and enter the code.',
-    search: 'Game-file search: these two promo-code strings are stored beside the Redeem Codes UI in collapse.exe. No other promo-code entries were found in the installed games; the other Paris, Pirate, and Clown matches are puzzle or avatar names.',
+    search: 'Game-file search: these two promo-code strings are stored beside the Redeem Codes UI in collapse.exe. No other promo-code entries were found in the installed games; the other Pirate and Clown matches are puzzle or avatar names.',
   },
 };
 

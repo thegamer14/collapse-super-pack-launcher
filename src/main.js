@@ -29,34 +29,36 @@ const DATA_DIR = app.isPackaged ? app.getPath('userData') : path.join(ROOT, 'dat
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
+/* Rich Presence uses the launcher's own Discord application. Only the
+   application/client ID is needed for local RPC; the application's public key
+   is for Discord's Embedded App/Activity verification and is not used here. */
+const DISCORD_APP_ID = '1570871731571134615';
+
 /** Launcher-wide preferences, saved next to the library. */
 const DEFAULT_SETTINGS = {
   tileSize: 'medium',     // small | medium | large
   showYears: true,        // the year sash on each box
   animations: true,       // tile pop-in and hover lift
   confirmRemove: true,    // ask before removing a game from the launcher
-  discordEnabled: false,  // Discord Rich Presence is opt-in
-  discordClientId: '',    // Discord application ID
+  discordEnabled: true,   // show the current game in Discord by default
+  discordClientId: DISCORD_APP_ID, // Discord application ID
   cloudUrl: 'https://site-21d01c0b2ef446f7b99c1c01574e93d1.freebuff.page', // REST endpoint for saves and leaderboards
   cloudName: '',          // name shown on the shared leaderboard
 };
 
 /** The games that ship in this collection, in the order the launcher shows them. */
 const DEFAULT_GAMES = [
+  { id: 'super-collapse',  title: 'Super Collapse!',                  year: '2001', art: 'sc1',              path: 'Super Collapse!/Collapse.exe' },
+  { id: 'spongebob-collapse', title: 'SpongeBob SquarePants Collapse!', year: '2003', art: 'spongebob',      path: 'Super-SpongeBob-SquarePants-Collapse_Win_EN_Full-Rip/SBCollapse.exe' },
+  { id: 'collapse-crunch', title: 'Collapse! Crunch',                 year: '2004', art: 'crunch',           path: 'Collapse! Crunch/unpacked/Collapse3.exe' },
+  { id: 'super-collapse-2', title: 'Super Collapse! II Platinum',     year: '2005', art: 'sc2',              path: 'supercollapseiiplatinum/SC2Platinum.exe' },
+  { id: 'super-collapse-3', title: 'Super Collapse! 3',                year: '2006', art: 'sc3',              path: 'SuperCollapse3/SuperCollapseIII.exe' },
   { id: 'puzzle-gallery',  title: 'Super Collapse! Puzzle Gallery',   year: '2007', art: 'puzzle-gallery',   path: 'SuperCollapsePuzzleGallery/CollapsePuzzle.exe' },
   { id: 'puzzle-gallery-2', title: 'Super Collapse! Puzzle Gallery 2', year: '2007', art: 'puzzle-gallery-2', path: 'supercollapsepuzzlegallery2/CollapsePuzzle2.exe' },
   { id: 'puzzle-gallery-3', title: 'Super Collapse! Puzzle Gallery 3', year: '2008', art: 'puzzle-gallery-3', path: 'SuperCollapsePuzzleGallery3/CollapsePuzzle3.exe' },
-  { id: 'super-collapse-3', title: 'Super Collapse! 3',                year: '2006', art: 'sc3',              path: 'SuperCollapse3/SuperCollapseIII.exe' },
-  // both of these were sold inside trial launchers; see README "Trial wrappers"
-  // the 2003 Reflexive Arcade copy in "Super Collapse" is ASProtect-packed and
-  // cannot unpack on current Windows; the 2002 GameHouse build runs as-is
-  { id: 'super-collapse',  title: 'Super Collapse!',                  year: '2001', art: 'sc1',              path: 'Super Collapse!/Collapse.exe' },
-  { id: 'collapse-crunch', title: 'Collapse! Crunch',                 year: '2004', art: 'crunch',           path: 'Collapse! Crunch/unpacked/Collapse3.exe' },
-  { id: 'collapse',        title: 'Collapse!',                        year: '2009', art: 'collapse',         path: 'collapse!/collapse.exe' },
   { id: 'puzzle-gallery-4', title: 'Super Collapse! Puzzle Gallery 4', year: '2008', art: 'puzzle-gallery-4', path: 'supercollapsepuzzlegallery4/CollapsePuzzle4.exe' },
+  { id: 'collapse',        title: 'Collapse!',                        year: '2009', art: 'collapse',         path: 'collapse!/collapse.exe' },
   { id: 'puzzle-gallery-5', title: 'Super Collapse! Puzzle Gallery 5', year: '2009', art: 'puzzle-gallery-5', path: 'supercollapsepuzzlegallery5/PuzzleGallery5.exe' },
-  { id: 'super-collapse-2', title: 'Super Collapse! II Platinum',     year: '2005', art: 'sc2',              path: 'supercollapseiiplatinum/SC2Platinum.exe' },
-  { id: 'spongebob-collapse', title: 'SpongeBob SquarePants Collapse!', year: '2003', art: 'spongebob',      path: 'Super-SpongeBob-SquarePants-Collapse_Win_EN_Full-Rip/SBCollapse.exe' },
 ];
 
 /* Release years shown on the game tiles. These follow the series table, not
@@ -91,57 +93,62 @@ const NATIVE_SIZES = {
 };
 
 let win = null;
-const presenceWatchers = new Map();
+let presenceTimer = null;
+let presenceGameId = null;
 
 /**
- * Discord should go back to "Browsing" when the game leaves, not stay on the
- * last title forever. tasklist is enough here: every game is a normal Windows
- * process, including the ones BitBit wraps.
+ * Finds whichever library game is running, even if it was started from
+ * Explorer instead of the launcher. tasklist is enough here: every game is a
+ * normal Windows process, including the ones BitBit wraps.
  */
-function watchGamePresence(game) {
-  const exe = path.basename(game.path || '');
-  if (!exe.toLowerCase().endsWith('.exe')) return;
-  const old = presenceWatchers.get(game.id);
-  if (old) clearInterval(old);
-  const started = Date.now();
-  const timer = setInterval(() => {
-    execFile('tasklist.exe', ['/FI', `IMAGENAME eq ${exe}`, '/FO', 'CSV', '/NH'], { windowsHide: true }, (error, stdout) => {
-      const running = !error && String(stdout).toLowerCase().includes(exe.toLowerCase());
-      if (running && Date.now() - started < 6 * 60 * 60 * 1000) return;
-      clearInterval(timer);
-      presenceWatchers.delete(game.id);
-      discord.clearGame();
+function syncGamePresence() {
+  const library = readLibrary();
+  execFile('tasklist.exe', ['/FO', 'CSV', '/NH'], { windowsHide: true }, (error, stdout) => {
+    if (error) return;
+    const running = new Set();
+    for (const line of String(stdout).split(/\r?\n/)) {
+      const match = line.match(/^"([^"]+)"/);
+      if (match) running.add(match[1].toLowerCase());
+    }
+    const game = library.games.find((candidate) => {
+      const exe = path.basename(candidate.path || '');
+      return exe && running.has(exe.toLowerCase());
     });
-  }, 5000);
-  presenceWatchers.set(game.id, timer);
+    if (game) {
+      if (presenceGameId !== game.id) {
+        presenceGameId = game.id;
+        discord.setGame(game);
+      }
+    } else if (presenceGameId !== null) {
+      presenceGameId = null;
+      discord.clearGame();
+    }
+  });
 }
 
 function noteGameStarted(game) {
+  presenceGameId = game.id;
   discord.setGame(game);
-  watchGamePresence(game);
+  // The process may take a moment to appear; a later poll also keeps this in
+  // sync with games that were started without going through the launcher.
+  setTimeout(syncGamePresence, 1500);
 }
 
-/**
- * First run of a built launcher: start from the library and preferences that
- * were saved while developing, so the per-game display settings carry over
- * instead of being replaced by the defaults.
- */
-function seedData() {
-  if (!app.isPackaged) return;
-  const bundled = path.join(ROOT, 'data');
-  for (const name of ['library.json', 'settings.json']) {
-    const target = path.join(DATA_DIR, name);
-    const source = path.join(bundled, name);
-    if (fs.existsSync(target) || !fs.existsSync(source)) continue;
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.copyFileSync(source, target);
-  }
+function releaseYear(game) {
+  const year = Number.parseInt(game && game.year, 10);
+  return Number.isFinite(year) ? year : Number.MAX_SAFE_INTEGER;
+}
+
+/** Oldest first; games without a year go after the dated collection. */
+function sortGamesByYear(games) {
+  return games.slice().sort((a, b) => releaseYear(a) - releaseYear(b));
 }
 
 function readLibrary() {
   try {
     const parsed = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'));
     if (Array.isArray(parsed.games)) {
+      let changed = false;
       // Older libraries predate the display settings on Collapse! 2010. Give
       // that one game the settings it needed to leave its tiny window: scaled,
       // stretched to 1080p. A player's explicit choice is never overwritten.
@@ -152,26 +159,42 @@ function readLibrary() {
           display: 'scaled', scaling: 'fill', filter: 'smooth', musicFix: true, widescreenFix: true,
           windowWidth: 1920, windowHeight: 1080,
         };
-        writeLibrary(parsed);
+        changed = true;
       }
       // Existing libraries keep their old labels until they are touched. Fix
       // the known series dates here so current installs update automatically.
-      let yearsChanged = false;
       for (const game of parsed.games) {
         const year = RELEASE_YEARS[game.id];
         if (year && game.year !== year) {
           game.year = year;
-          yearsChanged = true;
+          changed = true;
         }
       }
-      if (yearsChanged) writeLibrary(parsed);
+      // A library carried between PCs keeps absolute paths that no longer
+      // exist. Relink any missing bundled game from this launcher's own folder
+      // before showing Locate.
+      for (const game of parsed.games) {
+        if (game.path && fs.existsSync(game.path)) continue;
+        const bundled = DEFAULT_GAMES.find((candidate) => candidate.id === game.id && candidate.path);
+        if (!bundled) continue;
+        const candidate = path.join(GAMES_DIR, bundled.path);
+        if (!fs.existsSync(candidate)) continue;
+        game.path = candidate;
+        changed = true;
+      }
+      const ordered = sortGamesByYear(parsed.games);
+      if (ordered.some((game, index) => game !== parsed.games[index])) {
+        parsed.games = ordered;
+        changed = true;
+      }
+      if (changed) writeLibrary(parsed);
       return parsed;
     }
   } catch {
     /* first run or unreadable file: start from the defaults */
   }
   const library = {
-    games: DEFAULT_GAMES.map((g) => ({ ...g, path: g.path ? path.join(GAMES_DIR, g.path) : null })),
+    games: sortGamesByYear(DEFAULT_GAMES.map((g) => ({ ...g, path: g.path ? path.join(GAMES_DIR, g.path) : null }))),
   };
   writeLibrary(library);
   return library;
@@ -190,6 +213,9 @@ function readSettings() {
       if (typeof parsed[key] === typeof DEFAULT_SETTINGS[key]) merged[key] = parsed[key];
     }
     if (!['small', 'medium', 'large'].includes(merged.tileSize)) merged.tileSize = 'medium';
+    // Older settings may contain an empty custom ID. Fall back to the built-in
+    // application instead of letting that empty string disable Rich Presence.
+    if (!String(merged.discordClientId).trim()) merged.discordClientId = DISCORD_APP_ID;
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -285,9 +311,10 @@ function createWindow() {
 Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {
-  seedData();
   createWindow();
   configureDiscord(readSettings());
+  syncGamePresence();
+  presenceTimer = setInterval(syncGamePresence, 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -295,8 +322,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  for (const timer of presenceWatchers.values()) clearInterval(timer);
-  presenceWatchers.clear();
+  if (presenceTimer) clearInterval(presenceTimer);
+  presenceTimer = null;
   discord.clearGame();
 });
 

@@ -7,8 +7,8 @@ const LAUNCHER_DEFAULT_SETTINGS = {
   showYears: true,
   animations: true,
   confirmRemove: true,
-  discordEnabled: false,
-  discordClientId: '',
+  discordEnabled: true,
+  discordClientId: '1570871731571134615',
   cloudUrl: '',
   cloudName: '',
 };
@@ -23,7 +23,7 @@ const DEMO_CODES = {
 const DEMO_CODE_GUIDE = {
   collapse: {
     where: 'In Collapse!, open the Redeem Codes screen and enter the code.',
-    search: 'Game-file search: these two promo-code strings are stored beside the Redeem Codes UI in collapse.exe. No other promo-code entries were found in the installed games; the other Paris, Pirate, and Clown matches are puzzle or avatar names.',
+    search: 'Game-file search: these two promo-code strings are stored beside the Redeem Codes UI in collapse.exe. No other promo-code entries were found in the installed games; the other Pirate and Clown matches are puzzle or avatar names.',
   },
 };
 
@@ -781,28 +781,58 @@ function openLauncherSettings() {
   settingsRow(
     panel,
     'Show what I am playing',
-    'Publishes the game name in your Discord profile while it is open.',
+    'Publishes the running game in your Discord profile while it is open.',
     toggleControl({
       value: settings.discordEnabled,
-      onChange: (value) => saveSettings({ discordEnabled: value }),
+      onChange: async (value) => {
+        await saveSettings({ discordEnabled: value });
+        await updateDiscordStatus();
+        setTimeout(updateDiscordStatus, 1200);
+      },
     })
   );
+
+  const discordStatus = document.createElement('p');
+  discordStatus.className = 'sub discord-status';
+  discordStatus.textContent = 'Checking the Discord connection…';
+  panel.append(discordStatus);
+
+  async function updateDiscordStatus() {
+    try {
+      const status = await backend.discordStatus();
+      if (!settings.discordEnabled) {
+        discordStatus.textContent = 'Rich Presence is turned off.';
+      } else if (status.starting) {
+        discordStatus.textContent = 'Connecting to Discord…';
+      } else if (status.connected) {
+        discordStatus.textContent = status.game
+          ? `Connected to Discord — showing ${status.game}.`
+          : 'Connected to Discord — showing the launcher.';
+      } else {
+        discordStatus.textContent = 'Discord is not running, so nothing is being shared.';
+      }
+    } catch {
+      discordStatus.textContent = 'Could not read the Discord connection.';
+    }
+  }
+  updateDiscordStatus();
 
   const discordIdField = document.createElement('div');
   discordIdField.className = 'field';
   const discordIdLabel = document.createElement('label');
   discordIdLabel.textContent = 'Discord application ID';
   const discordIdHint = document.createElement('small');
-  discordIdHint.textContent = 'Create an application at discord.com/developers/applications, then paste its Application ID here. This is not a bot token.';
+  discordIdHint.textContent = 'The pack uses its own Discord application by default. Only change this if you are using a different Discord application; this is not a bot token.';
   discordIdLabel.append(discordIdHint);
   const discordIdInput = document.createElement('input');
   discordIdInput.type = 'text';
-  discordIdInput.placeholder = 'e.g. 123456789012345678';
+  discordIdInput.placeholder = '1570871731571134615';
   discordIdInput.value = settings.discordClientId || '';
   discordIdInput.addEventListener('change', async () => {
     await saveSettings({ discordClientId: discordIdInput.value.trim() });
     toast('Discord settings saved. Reconnecting…');
     await backend.reconnectDiscord().catch(() => {});
+    setTimeout(updateDiscordStatus, 600);
   });
   discordIdField.append(discordIdLabel, discordIdInput);
   panel.append(discordIdField);

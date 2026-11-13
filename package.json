@@ -1,7 +1,7 @@
 {
   "name": "collapse-super-pack-launcher",
   "productName": "Collapse Super Pack",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Launcher for the Collapse! / Super Collapse! collection",
   "author": "Collapse Super Pack",
   "main": "src/main.js",
@@ -21,7 +21,6 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "data/*.json",
       "tools/bitbit/BitBit.exe",
       "tools/fullscreen-launch.ps1",
       "package.json"
