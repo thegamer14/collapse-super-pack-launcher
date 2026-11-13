@@ -9,8 +9,25 @@ const SC3_KEY = 'HKCU\\Software\\GameHouse\\SuperCollapseIII';
 const SC4_KEY = 'HKCU\\Software\\GameHouse\\Games\\SuperCollapse4';
 const SC4_SAVE = 'C:\\ProgramData\\GameHouse\\Games\\SuperCollapse4';
 
-const SC3_MODES = ['trad', 'continuous', 'countdown', 'h2h', 'puzzle', 'relapse', 'slider', 'strat'];
-const SC3_MAX = 999;
+/* Super Collapse! 3 does not derive its Game Parlor locks from the
+   *_maxLevel registry values. Its dialog has one locked-overlay branch per
+   Quick Play mode and jumps over the unlocked branch when the profile has not
+   earned that mode. These are the exact comparisons and jumps in the shipping
+   executable. NOPing the jump leaves the dialog on the already-built unlocked
+   path, which reveals the mode card and START button. */
+const SC3_UNLOCK_PATCHES = [
+  { name: 'Classic',    pattern: '663968288bce0f853b010000', jumpOffset: 6, jumpLength: 6 },
+  { name: 'Relapse',    pattern: '6639692a8bce0f853b010000', jumpOffset: 6, jumpLength: 6 },
+  { name: 'Strategy',   pattern: '6639692c8bce0f853b010000', jumpOffset: 6, jumpLength: 6 },
+  { name: 'Puzzle',     pattern: '6639692e8bce756a',         jumpOffset: 6, jumpLength: 2 },
+  { name: 'Slider',     pattern: '663969208bce0f853b010000', jumpOffset: 6, jumpLength: 6 },
+  { name: 'Continuous', pattern: '663969248bce756a',         jumpOffset: 6, jumpLength: 2 },
+  { name: 'Countdown',  pattern: '663969268bce756a',         jumpOffset: 6, jumpLength: 2 },
+];
+
+function hexBuffer(hex) {
+  return Buffer.from(hex, 'hex');
+}
 
 function run(file, args) {
   return new Promise((resolve) => {
@@ -60,52 +77,72 @@ async function exportRegistry(key, file) {
   return run('reg.exe', ['export', key, file, '/y']);
 }
 
-async function setDword(profile, name, value) {
-  return run('reg.exe', ['add', `${SC3_KEY}\\${profile}`, '/v', name, '/t', 'REG_DWORD', '/d', String(value), '/f']);
-}
-
-async function unlockSc3(dataDir) {
-  const profiles = await sc3Profiles();
-  if (!profiles.length) {
-    return { ok: false, error: 'Super Collapse! 3 has not created a registry profile yet. Start the game once, then try again.' };
+async function unlockSc3(game, dataDir) {
+  if (!game || !game.path || !fs.existsSync(game.path)) {
+    return { ok: false, error: 'The Super Collapse! 3 executable was not found.' };
   }
 
-  const folder = backupDir(dataDir, 'super-collapse-3-registry');
-  const backupFile = path.join(folder, 'SuperCollapseIII.reg');
-  const exported = await exportRegistry(SC3_KEY, backupFile);
-  if (!exported.ok) return { ok: false, error: `Could not back up the Super Collapse! 3 registry: ${exported.error}` };
+  const original = `${game.path}.launcher-original`;
+  try {
+    if (!fs.existsSync(original)) fs.copyFileSync(game.path, original);
+  } catch (error) {
+    return { ok: false, error: `Could not back up Super Collapse! 3 before patching it: ${error.message}` };
+  }
 
-  const applied = [];
-  const failures = [];
-  for (const profile of profiles) {
-    // The game stores each profile directly under SuperCollapseIII. Setting the
-    // max level is what unlocks a mode in the Quick Play menu; leaving current
-    // level at its existing value avoids dropping the player into level 9999.
-    for (const mode of SC3_MODES) {
-      const max = await setDword(profile, `${mode}_maxLevel`, SC3_MAX);
-      if (max.ok) applied.push(`${profile}: ${mode}_maxLevel`);
-      else failures.push(`${profile}: ${mode}_maxLevel`);
-      const current = await run('reg.exe', ['query', `${SC3_KEY}\\${profile}`, '/v', `${mode}_currentLevel`]);
-      // A profile that has never entered this mode may have no current level,
-      // or a zero one. Creating 1 makes the mode selectable without moving a
-      // player who already has a real level backwards.
-      if (!current.ok || /REG_DWORD\s+0x0\b/i.test(current.stdout)) {
-        const create = await setDword(profile, `${mode}_currentLevel`, 1);
-        if (create.ok) applied.push(`${profile}: ${mode}_currentLevel`);
-        else failures.push(`${profile}: ${mode}_currentLevel`);
+  let patched = 0;
+  let alreadyPatched = 0;
+  try {
+    const buffer = fs.readFileSync(game.path);
+    const next = Buffer.from(buffer);
+    const found = [];
+    for (const patch of SC3_UNLOCK_PATCHES) {
+      const pattern = hexBuffer(patch.pattern);
+      const at = next.indexOf(pattern);
+      if (at >= 0) {
+        found.push({ ...patch, at });
+        continue;
       }
+      // A previous unlock already NOPed this jump. Recognise it so the action
+      // is idempotent instead of reporting an unsupported executable.
+      const prefix = pattern.subarray(0, patch.jumpOffset);
+      const prefixAt = next.indexOf(prefix);
+      const jumpAt = prefixAt >= 0 ? prefixAt + patch.jumpOffset : -1;
+      const jump = jumpAt >= 0 ? next.subarray(jumpAt, jumpAt + patch.jumpLength) : null;
+      if (jump && jump.length === patch.jumpLength && jump.every((byte) => byte === 0x90)) {
+        alreadyPatched++;
+        continue;
+      }
+      return { ok: false, error: `This Super Collapse! 3 build does not match the unlock patch (${patch.name}).` };
     }
+
+    for (const patch of found) {
+      const jumpAt = patch.at + patch.jumpOffset;
+      next.fill(0x90, jumpAt, jumpAt + patch.jumpLength);
+      patched++;
+    }
+    if (patched) fs.writeFileSync(game.path, next);
+  } catch (error) {
+    return { ok: false, error: `Could not patch Super Collapse! 3. Close the game and try again. (${error.message})` };
+  }
+
+  const profiles = await sc3Profiles();
+  let registryBackup = null;
+  if (profiles.length) {
+    const folder = backupDir(dataDir, 'super-collapse-3-registry');
+    registryBackup = path.join(folder, 'SuperCollapseIII.reg');
+    const exported = await exportRegistry(SC3_KEY, registryBackup);
+    if (!exported.ok) registryBackup = null;
   }
 
   return {
-    ok: failures.length === 0,
-    message: failures.length === 0
-      ? `Unlocked every Quick Play mode for ${profiles.join(', ')}. Registry backup: ${backupFile}`
-      : `Unlocked most modes, but ${failures.length} value(s) could not be written. Backup: ${backupFile}`,
-    backup: backupFile,
+    ok: true,
+    message: alreadyPatched && !patched
+      ? 'Every Quick Play mode is already unlocked.'
+      : 'Unlocked every Quick Play mode. Restart the game if it is open.',
+    backup: original,
+    registryBackup,
     profiles,
-    applied,
-    failures,
+    patched,
   };
 }
 
@@ -125,7 +162,7 @@ async function backupCollapse(dataDir) {
 
 async function unlockGame(game, dataDir) {
   if (!game) return { ok: false, error: 'That game is not in the library.' };
-  if (game.id === 'super-collapse-3') return unlockSc3(dataDir);
+  if (game.id === 'super-collapse-3') return unlockSc3(game, dataDir);
   if (game.id === 'collapse') {
     const backup = await backupCollapse(dataDir);
     return {

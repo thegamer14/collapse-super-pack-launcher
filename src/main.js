@@ -10,6 +10,7 @@ const { CloudClient } = require('./cloud');
 const discord = require('./discord');
 const gameSaves = require('./game-saves');
 const gamePatches = require('./game-patches');
+const updater = require('./updater');
 const { GAME_CODES, CODE_GUIDES } = require('./game-codes');
 
 const ROOT = path.resolve(__dirname, '..');          // CollapseLauncher/, or app/ inside a build
@@ -383,6 +384,20 @@ ipcMain.handle('game:unlock', async (_event, id) => {
   if (!game) return { ok: false, error: 'That game is not in the library.' };
   return gameSaves.unlockGame(game, DATA_DIR);
 });
+
+ipcMain.handle('launcher:version', () => app.getVersion());
+
+ipcMain.handle('launcher:update-check', () => updater.checkForUpdates());
+
+ipcMain.handle('launcher:update-install', async () => {
+  const result = await updater.installUpdate();
+  // The helper waits for this process to exit before replacing the portable
+  // executable. Give Electron enough time to deliver this IPC reply first.
+  if (result && result.ok && result.started) setTimeout(() => app.quit(), 700);
+  return result;
+});
+
+ipcMain.handle('launcher:update-open', (_event, url) => updater.openReleasePage(url));
 
 ipcMain.handle('game:save-info', async (_event, id) => gameSaves.saveInfo(findGame(id)));
 

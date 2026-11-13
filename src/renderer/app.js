@@ -73,6 +73,10 @@ const backend = window.launcher || {
   },
   getSettings: async () => ({ ...LAUNCHER_DEFAULT_SETTINGS }),
   saveSettings: async (patch) => ({ ...LAUNCHER_DEFAULT_SETTINGS, ...patch }),
+  getVersion: async () => '1.0.0-dev',
+  checkLauncherUpdate: async () => ({ ok: false, error: 'GitHub updates work in the desktop app.' }),
+  installLauncherUpdate: async () => ({ ok: false, error: 'GitHub updates work in the desktop app.' }),
+  openLauncherRelease: async () => ({ ok: false }),
   fitWindow: async () => null,
   unlock: async () => ({ ok: false, error: 'Unlocking works in the desktop app.' }),
   saveInfo: async () => ({ supported: false, files: [] }),
@@ -694,6 +698,79 @@ function openLauncherSettings() {
       onChange: (value) => saveSettings({ confirmRemove: value }),
     })
   );
+
+  /* ---------------------------------------------------- launcher updates */
+  const updatesSection = document.createElement('p');
+  updatesSection.className = 'sub section-title';
+  updatesSection.textContent = 'Launcher updates';
+  panel.append(updatesSection);
+
+  const updateField = document.createElement('div');
+  updateField.className = 'field';
+  const updateLabel = document.createElement('label');
+  updateLabel.textContent = 'GitHub releases';
+  const updateHint = document.createElement('small');
+  updateHint.textContent = 'Checks for a newer portable launcher and installs it from GitHub.';
+  updateLabel.append(updateHint);
+
+  const updateRow = document.createElement('div');
+  updateRow.className = 'button-row';
+  const updateButton = document.createElement('button');
+  updateButton.type = 'button';
+  updateButton.className = 'btn primary';
+  updateButton.textContent = 'Check for updates';
+  const releaseButton = document.createElement('button');
+  releaseButton.type = 'button';
+  releaseButton.className = 'btn quiet';
+  releaseButton.textContent = 'Release page';
+  updateRow.append(updateButton, releaseButton);
+  updateField.append(updateLabel, updateRow);
+  panel.append(updateField);
+
+  backend.getVersion().then((version) => {
+    if (version) updateHint.textContent = `Current version ${version}. Checks for a newer portable launcher and installs it from GitHub.`;
+  }).catch(() => {});
+
+  releaseButton.addEventListener('click', () => {
+    backend.openLauncherRelease().catch(() => toast('Could not open the GitHub releases page.'));
+  });
+
+  updateButton.addEventListener('click', async () => {
+    updateButton.disabled = true;
+    releaseButton.disabled = true;
+    updateButton.textContent = 'Checking…';
+    try {
+      const result = await backend.checkLauncherUpdate();
+      if (!result || result.ok === false) {
+        toast((result && result.error) || 'Could not check GitHub for updates.');
+        return;
+      }
+      if (!result.available) {
+        toast(`Launcher is up to date (v${result.currentVersion}).`);
+        return;
+      }
+      const accepted = await askConfirm(
+        `Update the launcher to v${result.latestVersion}?`,
+        'The portable launcher will download the new GitHub release, close, install it and reopen. Your game library and settings stay untouched.',
+        'Update now'
+      );
+      if (!accepted) return;
+      updateButton.textContent = 'Downloading…';
+      const install = await backend.installLauncherUpdate();
+      if (!install || install.ok === false) {
+        toast((install && install.error) || 'Could not install the launcher update.');
+        return;
+      }
+      if (install.upToDate) toast(`Launcher is already up to date (v${install.currentVersion}).`);
+      else toast('Update downloaded. The launcher will restart to finish installing.');
+    } catch (error) {
+      toast(error.message || 'Could not update the launcher.');
+    } finally {
+      updateButton.disabled = false;
+      releaseButton.disabled = false;
+      updateButton.textContent = 'Check for updates';
+    }
+  });
 
   /* ---------------------------------------------------- Discord presence */
   const discordSection = document.createElement('p');

@@ -65,6 +65,11 @@ There are two gears, and they save different things.
 - **Release years** — show or hide the year sash on each box.
 - **Animations** — the pop-in when the launcher opens and the lift on hover.
 - **Ask before removing** — confirm before a game is taken out of the launcher.
+- **GitHub updates** — **Check for updates** reads the latest release from
+  `thegamer14/collapse-super-pack-launcher`. The portable launcher downloads the
+  new exe, replaces itself after closing, keeps the previous exe as
+  `Collapse Super Pack.exe.old`, and reopens. **Release page** opens the GitHub
+  releases in the browser. The launcher version is shown beside the button.
 
 **Next to each PLAY button** opens that game's own settings:
 
@@ -111,9 +116,10 @@ copies the codes but does not apply them to a save.
 ### Progress, cloud and Discord
 
 The game gear also has **Unlock all progress**, **Back up save** and
-**Restore save**. Unlock-all always writes a timestamped backup first. Super
-Collapse! 3 stores Quick Play progression in the registry, so the launcher sets
-each mode's `maxLevel` (and creates a current level only when one is missing).
+**Restore save**. Unlock-all always writes a timestamped backup first. For Super
+Collapse! 3 it patches the seven Game Parlor lock checks in the game executable
+(`SuperCollapseIII.exe.launcher-original` is kept beside it), so the Quick Play
+modes appear without changing the player's save data.
 Collapse! (2009/2010) keeps its profile in an encrypted `players.plrs` file;
 the launcher will not rewrite that file. It backs it up and points you at the
 game's own **DEBUG** button on the main menu instead.
