@@ -103,6 +103,18 @@ $ErrorActionPreference = 'Stop'
 try {
   Wait-Process -Id $AppPid -Timeout 45 -ErrorAction SilentlyContinue
   Start-Sleep -Milliseconds 500
+  # The portable wrapper keeps its own exe open briefly after Electron exits.
+  # Wait until that file is no longer locked before swapping it.
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $handle = [System.IO.File]::Open($Target, 'Open', 'ReadWrite', 'None')
+      $handle.Close()
+      break
+    } catch {
+      Start-Sleep -Milliseconds 300
+    }
+  }
   if (Test-Path -LiteralPath $Target) {
     Copy-Item -LiteralPath $Target -Destination $Backup -Force
   }
