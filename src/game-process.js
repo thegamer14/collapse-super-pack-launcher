@@ -174,6 +174,7 @@ function launchPlain(exePath, options) {
     cwd,
     arguments: args,
   });
+  if (!isScript && options && options.fps !== false) startFpsOverlay(child.pid);
   child.unref();
   return child;
 }
@@ -212,6 +213,24 @@ function scalerAvailable() {
   return fs.existsSync(SCALER);
 }
 
+/** Keeps the FPS readout in a separate, click-through overlay for native modes. */
+function startFpsOverlay(pid) {
+  if (!pid) return;
+  const overlay = onDisk(path.join(__dirname, '..', 'tools', 'fps', 'FpsOverlay.exe'));
+  if (!fs.existsSync(overlay)) return;
+  try {
+    const child = spawn(overlay, ['--pid', String(pid)], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    logger.log('FPS overlay started', { gamePid: pid, overlay });
+  } catch (error) {
+    logger.warn('could not start FPS overlay', { gamePid: pid, error: error.message });
+  }
+}
+
 /**
  * Starts a game through BitBit at a chosen resolution.
  * `windowWidth`/`windowHeight` is the presentation size (null = whole screen)
@@ -231,6 +250,7 @@ function launchScaled(exePath, options = {}) {
   }
   if (options.scaling === 'fill') scalerArgs.push('--stretch');
   if (options.filter === 'nearest') scalerArgs.push('--nearest');
+  if (options.fps !== false) scalerArgs.push('--fps');
 
   try {
     logger.log('starting BitBit', { scaler: SCALER, executable: exePath, arguments: scalerArgs, cwd });
@@ -276,6 +296,7 @@ function launchDisplayHelper(exePath, options, mode) {
   }
   const args = parseArgs(options.args);
   if (args.length) psArgs.push('-Arguments', args.join(' '));
+  if (options.fps !== false) psArgs.push('-Fps');
 
   try {
     logger.log('starting display helper', { executable: exePath, arguments: psArgs, mode });

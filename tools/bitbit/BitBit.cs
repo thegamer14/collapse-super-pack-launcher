@@ -160,6 +160,7 @@ namespace BitBit
         public bool Stretch;
         public bool Debug;
         public bool Nearest;
+        public bool Fps;
 
         public static Options Parse(string[] args)
         {
@@ -175,6 +176,7 @@ namespace BitBit
                     case "--height": options.Height = Int(Next(args, ref i)); break;
                     case "--stretch": options.Stretch = true; break;
                     case "--nearest": options.Nearest = true; break;
+                    case "--fps": options.Fps = true; break;
                     case "--debug": options.Debug = true; break;
                 }
             }
@@ -200,9 +202,11 @@ namespace BitBit
         readonly bool halftone;
         readonly int requestedWidth;
         readonly int requestedHeight;
+        readonly bool showFps;
 
         readonly Font labelFont = new Font("Segoe UI", 10f);
         readonly Brush labelBrush = new SolidBrush(Color.FromArgb(210, 255, 255, 255));
+        readonly Brush fpsBackdrop = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
 
         Bitmap frame;
         IntPtr memoryDc;
@@ -246,6 +250,9 @@ namespace BitBit
         double stretchMsTotal;
         double frameMsTotal;
         double worstFrameMs;
+        long gameFrames;
+        DateTime fpsWindow = DateTime.UtcNow;
+        double gameFps;
         DateTime lastReport = DateTime.UtcNow;
         DateTime lastTopmost = DateTime.MinValue;
         static readonly string logFile = Environment.GetEnvironmentVariable("BITBIT_LOG");
@@ -257,6 +264,7 @@ namespace BitBit
             halftone = !options.Nearest;
             requestedWidth = options.Width;
             requestedHeight = options.Height;
+            showFps = options.Fps;
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
@@ -706,6 +714,14 @@ namespace BitBit
             Stopwatch grab = Stopwatch.StartNew();
             GrabFrame();
             bool changed = FrameChanged();
+            if (changed) gameFrames++;
+            if ((DateTime.UtcNow - fpsWindow).TotalSeconds >= 0.5)
+            {
+                double elapsed = (DateTime.UtcNow - fpsWindow).TotalSeconds;
+                gameFps = elapsed > 0 ? gameFrames / elapsed : 0;
+                gameFrames = 0;
+                fpsWindow = DateTime.UtcNow;
+            }
             // the safety re-stretch covers anything the comparison misses
             if (changed || (DateTime.UtcNow - lastStretch).TotalMilliseconds > 250)
             {
@@ -735,6 +751,15 @@ namespace BitBit
                 string hint = "Ctrl+Alt+F12 returns to the unscaled game";
                 SizeF size = e.Graphics.MeasureString(hint, labelFont);
                 e.Graphics.DrawString(hint, labelFont, labelBrush, (ClientSize.Width - size.Width) / 2f, ClientSize.Height - size.Height - 14);
+            }
+
+            if (showFps)
+            {
+                string fpsText = string.Format("FPS {0:0}", gameFps);
+                SizeF size = e.Graphics.MeasureString(fpsText, labelFont);
+                e.Graphics.FillRectangle(fpsBackdrop,
+                    ClientSize.Width - size.Width - 24, 12, size.Width + 12, size.Height + 4);
+                e.Graphics.DrawString(fpsText, labelFont, labelBrush, ClientSize.Width - size.Width - 18, 14);
             }
 
             paint.Stop();

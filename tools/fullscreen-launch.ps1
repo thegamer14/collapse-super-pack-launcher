@@ -6,7 +6,8 @@ param(
   [int]$Height = 0,
   [int]$WindowWidth = 0,
   [int]$WindowHeight = 0,
-  [string]$WorkingDirectory = ''
+  [string]$WorkingDirectory = '',
+  [switch]$Fps
 )
 
 # Starts a game for modern displays.
@@ -82,7 +83,22 @@ public class GameDisplay
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("user32.dll")]
+    public static extern bool AdjustWindowRectEx(ref RECT rect, int style, bool menu, uint exStyle);
+
+    [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern void SwitchToThisWindow(IntPtr hWnd, bool altTab);
+
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte key, byte scan, uint flags, IntPtr extra);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int cmd);
@@ -138,6 +154,9 @@ public class GameDisplay
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
     public static DEVMODE Current()
     {
         DEVMODE dm = new DEVMODE();
@@ -160,8 +179,20 @@ public class GameDisplay
 }
 '@
 
+# This process is the one sizing the game window. Without this call Windows
+# virtualizes 1920x1080 to 2400x1350 at 125% scaling, leaving the game window
+# larger than the screen and its cursor mapping wrong.
+[void][GameDisplay]::SetProcessDPIAware()
+
 $WS_CAPTION = 0x00C00000
 $WS_THICKFRAME = 0x00040000
+$WS_SYSMENU = 0x00080000
+$WS_MINIMIZEBOX = 0x00020000
+$WS_MAXIMIZEBOX = 0x00010000
+$WS_BORDER = 0x00800000
+$WS_DLGFRAME = 0x00400000
+$WS_POPUP = 0x80000000
+$SWP_FRAMECHANGED = 0x0020
 $GWL_STYLE = -16
 
 $script:original = $null
@@ -186,20 +217,72 @@ function Wait-GameWindow {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     if ($Process.HasExited) { return [IntPtr]::Zero }
-    $Process.Refresh()
-    $handle = $Process.MainWindowHandle
-    if ($handle -ne [IntPtr]::Zero) { return $handle }
+    $width = 0
+    $height = 0
+    $handle = [GameDisplay]::FindWindowFor($Process.Id, [ref]$width, [ref]$height)
+    if ($handle -ne [IntPtr]::Zero -and $width -gt 32 -and $height -gt 32) { return $handle }
     Start-Sleep -Milliseconds 250
   }
   return [IntPtr]::Zero
 }
 
+function Focus-GameWindow {
+  param([IntPtr]$Handle)
+  if ($Handle -eq [IntPtr]::Zero) { return }
+  [void][GameDisplay]::SetForegroundWindow($Handle)
+  [GameDisplay]::SwitchToThisWindow($Handle, $true)
+  Start-Sleep -Milliseconds 120
+  if ([GameDisplay]::GetForegroundWindow() -ne $Handle) {
+    # The shell sometimes refuses a programmatic foreground switch. A real
+    # Alt tap lifts that restriction, the same fallback BitBit uses.
+    [GameDisplay]::keybd_event(0x12, 0, 0, [IntPtr]::Zero)
+    [GameDisplay]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
+    [void][GameDisplay]::SetForegroundWindow($Handle)
+    [GameDisplay]::SwitchToThisWindow($Handle, $true)
+  }
+}
+
+function Start-FpsOverlay {
+  param([System.Diagnostics.Process]$Process)
+  if (-not $Fps) { return }
+  $overlay = Join-Path $PSScriptRoot 'fps\FpsOverlay.exe'
+  if (-not (Test-Path $overlay)) { return }
+  try {
+    Start-Process -FilePath $overlay -ArgumentList @('--pid', $Process.Id) | Out-Null
+  } catch {
+    Write-Output "fps overlay not started: $($_.Exception.Message)"
+  }
+}
+
 function Make-Borderless {
   param([IntPtr]$Handle, [int]$W, [int]$H)
   $style = [GameDisplay]::GetWindowLongPtr($Handle, $GWL_STYLE).ToInt64()
-  $style = $style -band (-bnot ($WS_CAPTION -bor $WS_THICKFRAME))
+  # Remove every system frame bit, not just caption/thickframe. Leaving
+  # SYSMENU / min-max around lets Windows keep a non-client frame, which makes
+  # the client larger than the screen and throws off the game's mouse mapping.
+  $style = $style -band (-bnot ($WS_CAPTION -bor $WS_THICKFRAME -bor $WS_SYSMENU -bor $WS_MINIMIZEBOX -bor $WS_MAXIMIZEBOX -bor $WS_BORDER -bor $WS_DLGFRAME))
+  $style = $style -bor $WS_POPUP
   [void][GameDisplay]::SetWindowLongPtr($Handle, $GWL_STYLE, [IntPtr]$style)
-  [void][GameDisplay]::SetWindowPos($Handle, [IntPtr](-1), 0, 0, $W, $H, 0x0040)
+
+  # SetWindowPos sizes the outer window. Ask Windows for the outer size that
+  # yields exactly W x H client pixels, then verify and correct once more for
+  # DWM's invisible frame.
+  $rect = New-Object GameDisplay+RECT
+  $rect.Right = $W
+  $rect.Bottom = $H
+  [void][GameDisplay]::AdjustWindowRectEx([ref]$rect, [int]$style, $false, 0)
+  $outerW = $rect.Right - $rect.Left
+  $outerH = $rect.Bottom - $rect.Top
+  [void][GameDisplay]::SetWindowPos($Handle, [IntPtr](-1), 0, 0, $outerW, $outerH, $SWP_FRAMECHANGED -bor 0x0040)
+
+  $client = New-Object GameDisplay+RECT
+  if ([GameDisplay]::GetClientRect($Handle, [ref]$client)) {
+    $dw = $W - $client.Right
+    $dh = $H - $client.Bottom
+    if ($dw -ne 0 -or $dh -ne 0) {
+      [void][GameDisplay]::SetWindowPos($Handle, [IntPtr](-1), 0, 0, $outerW + $dw, $outerH + $dh, $SWP_FRAMECHANGED -bor 0x0040)
+    }
+  }
   [void][GameDisplay]::SetForegroundWindow($Handle)
 }
 
@@ -225,8 +308,8 @@ if ($Arguments) { $startArgs['ArgumentList'] = $Arguments }
 
 if ($Mode -eq 'window') {
   $process = Start-Process @startArgs
-  if ($WindowWidth -gt 0 -and $WindowHeight -gt 0) {
-    $handle = Wait-GameWindow -Process $process
+  $handle = Wait-GameWindow -Process $process
+  if ($handle -ne [IntPtr]::Zero -and $WindowWidth -gt 0 -and $WindowHeight -gt 0) {
     if ($handle -ne [IntPtr]::Zero) {
       $rect = New-Object GameDisplay+RECT
       $rect.Right = $WindowWidth
@@ -239,9 +322,10 @@ if ($Mode -eq 'window') {
       $x = [Math]::Max(0, [int](($screenW - $w) / 2))
       $y = [Math]::Max(0, [int](($screenH - $h) / 2))
       [void][GameDisplay]::SetWindowPos($handle, [IntPtr]::Zero, $x, $y, $w, $h, 0x0040)
-      [void][GameDisplay]::SetForegroundWindow($handle)
+      Focus-GameWindow -Handle $handle
     }
   }
+  if ($handle -ne [IntPtr]::Zero) { Start-FpsOverlay -Process $process }
   exit 0
 }
 
@@ -260,6 +344,7 @@ if ($Mode -eq 'borderless') {
     if ($handle -ne [IntPtr]::Zero) {
       [void][GameDisplay]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, $w, $h, 0x0040)
       Make-Borderless -Handle $handle -W $w -H $h
+      Start-FpsOverlay -Process $process
     }
     $process.WaitForExit()
   } finally {
@@ -290,6 +375,7 @@ try {
     $w = if ($Width -gt 0) { $Width } else { 800 }
     $h = if ($Height -gt 0) { $Height } else { 600 }
     Make-Borderless -Handle $handle -W $w -H $h
+    Start-FpsOverlay -Process $process
   }
 
   $process.WaitForExit()

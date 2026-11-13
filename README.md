@@ -70,6 +70,10 @@ There are two gears, and they save different things.
 - **Box size** — small, medium or large covers; the grid re-fits itself.
 - **Release years** — show or hide the year sash on each box.
 - **Animations** — the pop-in when the launcher opens and the lift on hover.
+- **FPS counter** — a small click-through overlay while a game is running. It
+  reports the game's visible frame rate for native/borderless/window launches
+  and is drawn inside BitBit for scaled games. Turn it off here if you prefer a
+  clean screen.
 - **Ask before removing** — confirm before a game is taken out of the launcher.
 - **GitHub updates** — **Check for updates** reads the latest release from
   `thegamer14/collapse-super-pack-launcher`. The portable launcher downloads the
@@ -84,10 +88,13 @@ There are two gears, and they save different things.
 - **Working folder** — start the game from somewhere other than its own folder.
   Leave it empty for the default.
 - **Display** — **Scaled** runs the game through BitBit (below) at a
-  resolution you pick; **Borderless** fills the screen without BitBit for the
-  2010 engine; **Window** leaves it in its own little window. Fixed-size games
-  default to Scaled, and Collapse! (2010) defaults to Scaled with Fill so it
-  leaves its old 1024×768 window and the black side bars behind.
+  resolution you pick; **Fullscreen** runs a mouse-sensitive game at its native
+  mode; **Borderless** fills the screen without BitBit for scalable engines;
+  **Window** leaves it in its own little window. Fixed-size games default to
+  Scaled. Collapse! (2009) defaults to Fullscreen using the game's own native
+  1024×768 4:3 mode. Its engine only renders a 1024-pixel-wide canvas, so a
+  1920×1080 window leaves the picture in the left strip; the launcher no longer
+  patches or resizes that window.
 - **Resolution** — the size the game is presented at: the whole screen, or
   1920×1080, 1600×900, 1366×768, 1280×720, 1024×768.
 - **Shape** — **Fit 4:3** keeps the game's shape with black bars at the sides;
@@ -166,17 +173,16 @@ the tile through renames and relocations.
 
 ## Display: BitBit
 
-Collapse! (2010) also has an engine-level `widescreencontent` flag in
-`properties/application.xml`. The shipping value is `false`, which makes the
-game draw its 4:3 canvas letterboxed inside a 16:9 window. The launcher sets the
-flag to `true` at launch (keeping the original as
-`application.xml.launcher-original`) and exposes a **Widescreen content fix**
-toggle in the game's gear. This is the fix for side bars that survive even when
-the game is already fullscreen.
+Collapse! (2010) renders a fixed 1024×768 4:3 canvas. Its `widescreencontent`
+flag does not widen that canvas: setting the window to 1920×1080 leaves the
+game drawing in the left 1024 pixels. The launcher therefore restores the
+original `application.xml` before launch and uses the game's own fullscreen
+mode, which keeps the cursor mapping correct. A true 16:9 rendering would need
+a renderer modification; this launcher deliberately does not fake it by
+stretching or resizing the window.
 
-Every game here except Collapse! (2010) paints a fixed 640×480 or 800×600
-surface and ignores its window size, so no setting inside the game can make it
-bigger. **BitBit** (`tools/bitbit/BitBit.exe`) is the upscaler that fixes that: a
+Every game here paints a fixed 640×480, 800×600 or 1024×768 surface and ignores
+larger window sizes, so no setting inside the game can make it bigger. **BitBit** (`tools/bitbit/BitBit.exe`) is the upscaler that fixes that: a
 purpose-built dgVoodoo for these titles, except that they never touch Direct3D
 or DirectDraw at all — they are plain GDI, so a ddraw proxy would never load.
 It captures the game's window and re-presents it, scaled, in a borderless
@@ -203,6 +209,11 @@ always-on-top overlay:
 Each cover carries a chip showing how it will be presented — `1920 × 1080` for a
 BitBit game, `SCREEN` when it follows the monitor, `WINDOW` when it is not
 upscaled — so the display settings are visible without opening the gear.
+
+The FPS counter is part of the same display layer: BitBit counts changed game
+frames inside its overlay, while native/borderless/window launches use a small
+separate overlay (`tools/fps/FpsOverlay.exe`) that samples the centre of the
+game window. It never injects into or modifies a game.
 
 Rebuild it with `tools/bitbit/build.cmd`, which uses the C# compiler that ships
 with Windows — no SDK, no packages. The log is off by default; set `BITBIT_LOG`

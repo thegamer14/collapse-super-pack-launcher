@@ -6,6 +6,7 @@ const LAUNCHER_DEFAULT_SETTINGS = {
   tileSize: 'medium',
   showYears: true,
   animations: true,
+  fpsCounter: true,
   confirmRemove: true,
   discordEnabled: true,
   discordClientId: '1570871731571134615',
@@ -146,11 +147,18 @@ function artFor(game) {
 function displayChip(game) {
   const s = game.settings || {};
   const needsWrapper = !game.native || !game.native.scalable;
-  const display = s.display === 'scaled' || s.display === 'window' || s.display === 'borderless'
+  const display = s.display === 'scaled' || s.display === 'window' || s.display === 'borderless' || s.display === 'native'
     ? s.display
     : (needsWrapper ? 'scaled' : 'window');
 
   const chip = document.createElement('span');
+  if (display === 'native') {
+    chip.className = 'mode';
+    chip.textContent = 'Fullscreen';
+    chip.title = 'Runs at the game’s native resolution';
+    return chip;
+  }
+
   if (display === 'window') {
     chip.className = 'mode window';
     chip.textContent = 'Window';
@@ -811,6 +819,16 @@ function openLauncherSettings() {
 
   settingsRow(
     panel,
+    'FPS counter',
+    'Shows a small FPS overlay while a game is running.',
+    toggleControl({
+      value: settings.fpsCounter !== false,
+      onChange: (value) => saveSettings({ fpsCounter: value }),
+    })
+  );
+
+  settingsRow(
+    panel,
     'Ask before removing',
     'Confirm when a game is taken out of the launcher.',
     toggleControl({
@@ -1158,9 +1176,10 @@ function openGameSettings(game) {
   let chosenDisplay = current.display === 'native'
     ? 'native'
     : current.display === 'borderless'
-      ? 'borderless'
+      ? (game.native && game.native.mouseSafe ? 'native' : 'borderless')
       : current.display === 'fullscreen' || current.display === 'scaled'
-        ? (game.native && game.native.scalable ? 'borderless' : 'scaled')
+        ? (game.native && game.native.mouseSafe ? 'native'
+          : game.native && game.native.scalable ? 'borderless' : 'scaled')
         : (game.native && game.native.mouseSafe ? 'native' : 'window');
   let chosenSize = current.windowWidth && current.windowHeight
     ? `${current.windowWidth}x${current.windowHeight}`
@@ -1174,20 +1193,26 @@ function openGameSettings(game) {
   const displayLabel = document.createElement('label');
   displayLabel.textContent = 'Display';
   const displayHint = document.createElement('small');
-  displayHint.textContent = native && !native.scalable
-    ? (native.mouseSafe
-      ? `This game draws at ${native.width} × ${native.height}. Fullscreen runs it at that native mode and avoids cursor drift. Scaled uses BitBit if you prefer the larger presentation.`
-      : `This game draws at ${native.width} × ${native.height} and cannot render larger. Scaled runs it through BitBit, our upscaler: it re-presents the game at the resolution below, at your monitor's refresh rate, with the real cursor.`)
-    : 'Borderless fills the screen using this engine’s own scalable window. Window leaves the game in its own window.';
+  displayHint.textContent = game.id === 'collapse'
+    ? 'Collapse! draws a fixed 1024 × 768 4:3 canvas. Fullscreen uses the game’s own fullscreen mode so its cursor mapping stays correct; Window leaves it in its own 1024 × 768 window.'
+    : native && native.mouseSafe
+      ? (native.scalable
+        ? `This game draws at ${native.width} × ${native.height}. Fullscreen runs it at that native mode and keeps its mouse mapping. Window leaves it in its own window.`
+        : `This game draws at ${native.width} × ${native.height}. Fullscreen runs it at that native mode and avoids cursor drift. Scaled uses BitBit if you prefer the larger presentation.`)
+      : native && native.scalable
+        ? 'Borderless fills the screen using this engine’s own scalable window. Window leaves the game in its own window.'
+        : `This game draws at ${native.width} × ${native.height} and cannot render larger. Scaled runs it through BitBit, our upscaler: it re-presents the game at the resolution below, at your monitor's refresh rate, with the real cursor.`;
   displayLabel.append(displayHint);
 
   const modes = document.createElement('div');
   modes.className = 'segments';
   const modeButtons = {};
-  const displayChoices = native && native.scalable
-    ? [['borderless', 'Borderless'], ['window', 'Window']]
-    : native && native.mouseSafe
-      ? [['scaled', 'Scaled'], ['native', 'Fullscreen'], ['window', 'Window']]
+  const displayChoices = native && native.mouseSafe
+    ? (native.scalable
+      ? [['native', 'Fullscreen'], ['window', 'Window']]
+      : [['scaled', 'Scaled'], ['native', 'Fullscreen'], ['window', 'Window']])
+    : native && native.scalable
+      ? [['borderless', 'Borderless'], ['window', 'Window']]
       : [['scaled', 'Scaled'], ['window', 'Window']];
   for (const [value, label] of displayChoices) {
     const button = document.createElement('button');
@@ -1294,8 +1319,6 @@ function openGameSettings(game) {
 
   let musicFix = current.musicFix !== false;
   let musicToggle = null;
-  let widescreenFix = current.widescreenFix !== false;
-  let widescreenToggle = null;
   if (game.id === 'collapse') {
     musicToggle = toggleControl({ value: musicFix, onChange: (value) => { musicFix = value; } });
     settingsRow(
@@ -1303,13 +1326,6 @@ function openGameSettings(game) {
       'Continuous mode music fix',
       'Repoints the game’s MUSIC_GAME stream to the Continuous track. The original resources.xml is backed up beside it.',
       musicToggle
-    );
-    widescreenToggle = toggleControl({ value: widescreenFix, onChange: (value) => { widescreenFix = value; } });
-    settingsRow(
-      panel,
-      'Widescreen content fix',
-      'Turns on the engine’s widescreen viewport so the 4:3 canvas no longer gets side bars. The original application.xml is backed up beside it.',
-      widescreenToggle
     );
   }
 
@@ -1411,15 +1427,13 @@ function openGameSettings(game) {
     argsInput.value = '';
     cwdInput.value = '';
     adminInput.checked = false;
-    chosenDisplay = native && native.scalable ? 'borderless' : native && native.mouseSafe ? 'native' : 'scaled';
+    chosenDisplay = native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
     chosenSize = '';
     chosenScaling = 'fit';
     chosenFilter = 'smooth';
     musicFix = true;
-    widescreenFix = true;
     if (musicToggle) musicToggle.checked = true;
-    if (widescreenToggle) widescreenToggle.checked = true;
-    const resetDisplay = native && native.scalable ? 'borderless' : native && native.mouseSafe ? 'native' : 'scaled';
+    const resetDisplay = native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
     for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === resetDisplay);
     for (const [key, el] of Object.entries(sizeButtons)) el.classList.toggle('on', key === '');
     for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === 'fit');
@@ -1438,7 +1452,6 @@ function openGameSettings(game) {
           scaling: chosenScaling,
           filter: chosenFilter,
           musicFix,
-          widescreenFix,
           windowWidth: chosenSize ? Number(chosenSize.split('x')[0]) : null,
           windowHeight: chosenSize ? Number(chosenSize.split('x')[1]) : null,
         },
