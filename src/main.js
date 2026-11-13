@@ -237,14 +237,25 @@ function readLibrary() {
         }
       }
       // Prefer the copy of each known game that sits in this launcher's
-      // folder. A portable library carried from an older location can still
-      // hold valid absolute paths, so checking only for missing files would
-      // leave it launching games from the old folder. A location chosen with
-      // Locate is marked manual and is preserved instead.
+      // folder. A location chosen with Locate is marked manual and is
+      // preserved instead. Libraries written before pathSource existed do not
+      // tell us whether their path came from Locate, so every existing path in
+      // one of those libraries is kept and marked manual. Only a missing path
+      // is safe to refresh automatically.
       for (const game of parsed.games) {
         const candidate = bundledGamePath(game);
         if (!candidate) continue;
         const currentExists = Boolean(game.path) && fs.existsSync(game.path);
+        const hasSource = game.pathSource === 'auto' || game.pathSource === 'manual';
+        if (!hasSource && currentExists && !samePath(game.path, candidate)) {
+          game.pathSource = 'manual';
+          changed = true;
+          logger.log('legacy game path kept as manual', {
+            id: game.id,
+            path: game.path,
+          });
+          continue;
+        }
         const manual = game.pathSource === 'manual';
         if (manual && currentExists) continue;
         if (samePath(game.path, candidate)) {
@@ -268,7 +279,7 @@ function readLibrary() {
         parsed.games = ordered;
         changed = true;
       }
-      if (changed) writeLibrary(parsed);
+      if (changed) writeLibrary(parsed, { backup: true });
       return parsed;
     }
   } catch {
@@ -281,12 +292,27 @@ function readLibrary() {
       pathSource: 'auto',
     }))),
   };
-  writeLibrary(library);
+  writeLibrary(library, { backup: true });
   return library;
 }
 
-function writeLibrary(library) {
+/** Keep the library from before a migration so a bad migration is reversible. */
+function backupLibrary() {
+  try {
+    if (!fs.existsSync(LIBRARY_FILE)) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let backup = `${LIBRARY_FILE}.bak`;
+    if (fs.existsSync(backup)) backup = `${LIBRARY_FILE}.${stamp}.bak`;
+    fs.copyFileSync(LIBRARY_FILE, backup);
+    logger.log('library backed up', { from: LIBRARY_FILE, to: backup });
+  } catch (error) {
+    logger.error('could not back up library', error);
+  }
+}
+
+function writeLibrary(library, { backup = false } = {}) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (backup) backupLibrary();
   fs.writeFileSync(LIBRARY_FILE, JSON.stringify(library, null, 2));
 }
 
