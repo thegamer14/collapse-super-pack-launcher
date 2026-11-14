@@ -30,7 +30,19 @@ const DATA_DIR = app.isPackaged ? app.getPath('userData') : path.join(ROOT, 'dat
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
-logger.configure(DATA_DIR);
+/* Keep the launcher log beside the exe the player double-clicked. The portable
+   wrapper unpacks Electron into a temp directory, so process.execPath is not
+   the visible launcher; PORTABLE_EXECUTABLE_DIR points at the real folder. If
+   that folder is read-only, fall back to app data so diagnostics still work. */
+const LOG_DIR = app.isPackaged
+  ? (process.env.PORTABLE_EXECUTABLE_DIR || (process.env.PORTABLE_EXECUTABLE_FILE
+    ? path.dirname(process.env.PORTABLE_EXECUTABLE_FILE)
+    : path.dirname(process.execPath)))
+  : ROOT;
+const LOG_FALLBACK_DIR = DATA_DIR;
+let logFile = logger.configure(LOG_DIR);
+if (!logFile && LOG_DIR !== LOG_FALLBACK_DIR) logFile = logger.configure(LOG_FALLBACK_DIR);
+
 logger.log('launcher starting', {
   version: app.getVersion(),
   packaged: app.isPackaged,
@@ -44,6 +56,8 @@ logger.log('launcher starting', {
   portableFile: process.env.PORTABLE_EXECUTABLE_FILE || null,
   gamesDir: GAMES_DIR,
   dataDir: DATA_DIR,
+  logDir: LOG_DIR,
+  logFallbackDir: LOG_FALLBACK_DIR,
   logPath: logger.file(),
 });
 
@@ -442,12 +456,15 @@ const captureIndexArg = process.argv.indexOf('--capture');
 const captureMode = captureIndexArg > 0 && Boolean(process.argv[captureIndexArg + 1]);
 
 function createWindow() {
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
+  const initialWidth = captureMode ? Math.min(1180, workArea.width - 40) : workArea.width;
+  const initialHeight = captureMode ? Math.min(740, workArea.height - 40) : workArea.height;
   win = new BrowserWindow({
-    width: Math.min(1180, screen.getPrimaryDisplay().workAreaSize.width - 40),
-    height: Math.min(740, screen.getPrimaryDisplay().workAreaSize.height - 40),
+    width: initialWidth,
+    height: initialHeight,
     minWidth: 940,
     minHeight: 640,
-    useContentSize: true,
+    useContentSize: captureMode,
     backgroundColor: '#123c26',
     title: 'Super Collapse Super Pack',
     icon: path.join(ROOT, 'assets', 'icon.ico'),
@@ -463,6 +480,7 @@ function createWindow() {
     },
   });
 
+  if (!captureMode) win.maximize();
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   if (captureMode) {
@@ -857,9 +875,15 @@ ipcMain.handle('game:rename', (_event, { id, title }) => {
 
 ipcMain.handle('window:fit', (_event, width, height) => {
   if (!win) return null;
-  const { workAreaSize } = screen.getPrimaryDisplay();
-  const w = captureMode ? Math.round(width) : Math.min(Math.round(width), workAreaSize.width - 40);
-  const h = captureMode ? Math.round(height) : Math.min(Math.round(height), workAreaSize.height - 80);
-  win.setContentSize(w, h);
+  if (captureMode) {
+    const w = Math.round(width);
+    const h = Math.round(height);
+    win.setContentSize(w, h);
+    return { width: w, height: h };
+  }
+  // The normal launcher is maximized on startup. Rendering the tiles must not
+  // shrink it back to the stage's design size; fitStage scales the stage inside
+  // whatever work area the window already occupies.
+  const [w, h] = win.getContentSize();
   return { width: w, height: h };
 });

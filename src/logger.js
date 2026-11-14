@@ -12,7 +12,12 @@ let childOutputFd = null;
 function configure(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
-    logFile = path.join(dir, 'launcher.log');
+    const candidate = path.join(dir, 'launcher.log');
+    // Check writability now, not on the first log write: the launcher exe may
+    // sit in a read-only folder, in which case main.js falls back to app data.
+    const handle = fs.openSync(candidate, 'a');
+    fs.closeSync(handle);
+    logFile = candidate;
     try {
       if (fs.statSync(logFile).size > MAX_LOG_BYTES) {
         const previous = `${logFile}.1`;

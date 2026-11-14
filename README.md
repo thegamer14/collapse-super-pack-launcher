@@ -8,8 +8,10 @@ add later.
 
 ## Running it
 
-Double-click **Collapse Super Pack.exe** in the collection folder (the folder
-holding `SuperCollapse3`, `collapse!`, `Collapse! Crunch` and the rest). It needs
+The launcher opens maximized to the display work area, and the game grid scales
+to fill it. Double-click **Collapse Super Pack.exe** in the collection folder
+(the folder holding `SuperCollapse3`, `collapse!`, `Collapse! Crunch` and the
+rest). It needs
 nothing installed — the exe carries Electron, the art and BitBit with it — and it
 finds the games by looking in the folder it was started from, so the launcher and
 the games stay together. On each start it refreshes the paths for the known games
@@ -110,10 +112,11 @@ There are two gears, and they save different things.
   game's own registration dialog. The launcher never validates, auto-fills or
   patches a license.
 - **Launch log** — **Launcher settings → Launch diagnostics** opens
-  `launcher.log`. It records startup information, game paths, launch commands,
-  helper output, process IDs and exit codes, and whether the game process was
-  still running six seconds after launch. Use **Copy log** to send the details
-  when a game will not start.
+  `launcher.log` beside the launcher exe, or under
+  `%APPDATA%\Collapse Super Pack\` if the exe folder is read-only. It records
+  startup information, game paths, launch commands, helper output, process IDs
+  and exit codes, and whether the game process was still running six seconds
+  after launch. Use **Copy log** to send the details when a game will not start.
 
 ### Codes
 

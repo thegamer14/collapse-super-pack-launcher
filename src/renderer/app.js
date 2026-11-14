@@ -322,6 +322,9 @@ function render() {
   const stageW = SIDE * 2 + widest * tileW + (widest - 1) * GAP;
   stage.style.setProperty('--stage-w', `${stageW}px`);
   backend.fitWindow(stageW, STAGE_H).catch(() => {});
+  // The launcher window is already maximized. Recalculate the stage scale
+  // after the final stage width is applied so the outer tiles do not clip.
+  fitStage();
 
   const missing = games.filter((g) => !g.exists).length;
   countEl.textContent = missing
