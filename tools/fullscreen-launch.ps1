@@ -165,6 +165,26 @@ public class GameDisplay
         return dm;
     }
 
+    public static int BestRefresh(int width, int height, int bpp)
+    {
+        // Old games ask Windows for "their" resolution, and Windows then picks
+        // 60 Hz if it is left to choose. Use the highest refresh that actually
+        // exists for the requested mode instead.
+        int best = 0;
+        DEVMODE dm = new DEVMODE();
+        dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+        for (int i = 0; EnumDisplaySettings(null, i, ref dm); i++)
+        {
+            if (dm.dmPelsWidth == width && dm.dmPelsHeight == height &&
+                (bpp <= 0 || dm.dmBitsPerPel == bpp) && dm.dmDisplayFrequency > best)
+            {
+                best = dm.dmDisplayFrequency;
+            }
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+        }
+        return best;
+    }
+
     public static int SetMode(int width, int height, short bpp, int frequency)
     {
         DEVMODE dm = new DEVMODE();
@@ -357,7 +377,10 @@ if ($Mode -eq 'borderless') {
 try {
   Save-Display
   if ($Width -gt 0 -and $Height -gt 0) {
-    $rc = [GameDisplay]::SetMode($Width, $Height, $script:original.dmBitsPerPel, $script:original.dmDisplayFrequency)
+    # Use the highest refresh the requested mode supports. Falling back to the
+    # desktop frequency is what left 1024x768-class modes stuck at 60 Hz.
+    $refresh = [GameDisplay]::BestRefresh($Width, $Height, $script:original.dmBitsPerPel)
+    $rc = [GameDisplay]::SetMode($Width, $Height, $script:original.dmBitsPerPel, $refresh)
     if ($rc -ne 0) {
       # frequency may not exist in that mode; let Windows choose one
       $rc = [GameDisplay]::SetMode($Width, $Height, $script:original.dmBitsPerPel, 0)

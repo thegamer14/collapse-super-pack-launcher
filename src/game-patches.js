@@ -32,8 +32,14 @@ const PATCH = {
   caveMaxLength: 0x100,
   caveDataLength: 0xbb,
   executedSectionFlag: 0x20000000,
+  // The game's music switch. Unlike a direct Sound::play call this stops the
+  // previous track and registers the new one with the scene/music manager, so
+  // leaving the game returns to Quick Play's menu track instead of bleeding
+  // the Continuous loop into the menu.
+  musicManagerVa: 0x59eca0,
   // Relative call instructions inside the copied Double Continuous block.
-  callOffsets: [0x0c, 0x28, 0x54, 0x5f, 0x7f, 0x8e, 0x9e, 0xaa],
+  // The call at 0x7f is replaced by the music-manager switch below.
+  callOffsets: [0x0c, 0x28, 0x54, 0x5f, 0x8e, 0x9e, 0xaa],
 };
 
 function collapseResources(gamePath) {
@@ -99,6 +105,20 @@ function isPatchedExecutable(buffer) {
   }
 }
 
+/* Version two uses the music-manager switch. Version one used a direct
+   Sound::play tail and must be rebuilt so existing installs get the stop fix. */
+function isCurrentMusicPatch(buffer) {
+  try {
+    const rdataHeader = findSectionHeader(buffer, '.rdata');
+    if (rdataHeader < 0) return false;
+    const rdata = sectionDetails(buffer, rdataHeader);
+    const cave = rdata.rawOffset + PATCH.caveOffsetWithinRdata;
+    return buffer[cave + 0x6c] === 0x90 && buffer[cave + 0x6d] === 0x90;
+  } catch {
+    return false;
+  }
+}
+
 function buildPatchedExecutable(original) {
   if (hashFileBuffer(original) !== ORIGINAL_EXE_SHA256) {
     throw new Error('This is not the Collapse! build the launcher knows how to patch.');
@@ -138,6 +158,12 @@ function buildPatchedExecutable(original) {
     block.writeInt32LE(oldRelative - delta, callOffset + 1);
   }
 
+  // Both the copied single-Continuous block and the original double-Continuous
+  // block must switch music through the manager. The direct Sound::play call
+  // left the previous menu stream running and was never stopped on scene exit.
+  patchContinuousMusicSwitch(block, 0, PATCH.caveVa);
+  patchContinuousMusicSwitch(patched, blockOffset, PATCH.blockVa);
+
   const jump = Buffer.alloc(5);
   jump[0] = 0xe9;
   jump.writeInt32LE(PATCH.blockEndVa - (PATCH.caveVa + block.length + 5), 1);
@@ -153,6 +179,29 @@ function buildPatchedExecutable(original) {
   patched.writeUInt32LE(PATCH.patchedRdataVirtualSize, rdataHeader + 8);
   patched.writeUInt32LE((rdata.characteristics | PATCH.executedSectionFlag) >>> 0, rdataHeader + 36);
   return patched;
+}
+
+/* Replaces the copied block's direct Sound::play tail with the game's music
+   manager. The manager stops the previous stream, starts the requested one,
+   and keeps the current-track pointer the scene destructors stop on exit. */
+function patchContinuousMusicSwitch(buffer, start, blockVa) {
+  // Remove fld1; the manager takes the stream's own configured volume.
+  if (buffer[start + 0x6c] !== 0xd9 || buffer[start + 0x6d] !== 0xe8) {
+    throw new Error('The Continuous music volume load has moved.');
+  }
+  buffer[start + 0x6c] = 0x90;
+  buffer[start + 0x6d] = 0x90;
+
+  // push esi / push 0x132 / push 0 / push edi / mov ecx,eax / call manager /
+  // pop esi. Saving esi keeps the block's cleanup path intact across the
+  // manager's cdecl call.
+  const call = Buffer.from([
+    0x56, 0x68, 0x32, 0x01, 0x00, 0x00, 0x6a, 0x00, 0x57,
+    0x8b, 0xc8, 0xe8, 0x00, 0x00, 0x00, 0x00, 0x5e,
+  ]);
+  const callVa = blockVa + 0x7e;
+  call.writeInt32LE(PATCH.musicManagerVa - (callVa + 5), 12);
+  for (let i = 0; i < call.length; i += 1) buffer[start + 0x73 + i] = call[i];
 }
 
 function hashFileBuffer(buffer) {
@@ -190,7 +239,14 @@ function setExecutableFix(exePath, enabled) {
     return { ok: true, patched: false, restored: true, backup };
   }
 
-  if (patched) return { ok: true, patched: true, backup: backupExists ? backup : null };
+  if (patched) {
+    if (isCurrentMusicPatch(current)) return { ok: true, patched: true, backup: backupExists ? backup : null };
+    // Upgrade an older launcher patch instead of rejecting the executable.
+    if (!backupExists) return { ok: false, error: 'The original Collapse! executable backup is missing.' };
+    const original = fs.readFileSync(backup);
+    fs.writeFileSync(exePath, buildPatchedExecutable(original));
+    return { ok: true, patched: true, backup, upgraded: true };
+  }
   if (currentHash !== ORIGINAL_EXE_SHA256) {
     return { ok: false, error: 'This Collapse! executable is not the supported original build.' };
   }

@@ -273,9 +273,20 @@ function readLibrary() {
       if (collapse && !collapse.settings) {
         collapse.settings = {
           args: '', cwd: null, admin: false,
-          display: 'widescreen', scaling: 'fill', filter: 'smooth', musicFix: true,
+          display: 'widescreen', scaling: 'fill', filter: 'nearest', musicFix: true,
           windowWidth: null, windowHeight: null,
         };
+        changed = true;
+      }
+      // Widescreen runs at the monitor refresh. HALFTONE at 1080p leaves only
+      // a few milliseconds inside a 144 Hz frame, so old installs get the sharp
+      // fast path once; Smooth remains selectable in Settings.
+      if (collapse && collapse.settings && parsed.collapseSharpWidescreenMigration !== 1) {
+        if (collapse.settings.display === 'widescreen') {
+          collapse.settings.filter = 'nearest';
+          changed = true;
+        }
+        parsed.collapseSharpWidescreenMigration = 1;
         changed = true;
       }
       if (collapse && collapse.settings && parsed.collapseWidescreenMigration !== 1) {
@@ -293,7 +304,7 @@ function readLibrary() {
         // Native mode ignores the BitBit-only size/filter fields. Normalize them
         // so old 1080p settings cannot make the settings screen misleading.
         if (collapse.settings.scaling !== 'fit') { collapse.settings.scaling = 'fit'; changed = true; }
-        if (collapse.settings.filter !== 'smooth') { collapse.settings.filter = 'smooth'; changed = true; }
+        if (collapse.settings.filter !== 'nearest') { collapse.settings.filter = 'nearest'; changed = true; }
         if (collapse.settings.windowWidth !== null) { collapse.settings.windowWidth = null; changed = true; }
         if (collapse.settings.windowHeight !== null) { collapse.settings.windowHeight = null; changed = true; }
         // The old widescreen-content toggle patched application.xml to 1920
@@ -564,7 +575,7 @@ ipcMain.handle('game:update', (_event, { id, settings }) => {
     admin: Boolean(patch.admin),
     display,
     scaling: display === 'widescreen' || patch.scaling === 'fill' ? 'fill' : 'fit',
-    filter: patch.filter === 'nearest' ? 'nearest' : 'smooth',
+    filter: patch.filter === 'nearest' || (game.id === 'collapse' && patch.filter === undefined) ? 'nearest' : 'smooth',
     musicFix: patch.musicFix !== false,
     windowWidth: Number.isFinite(width) && width >= 640 ? Math.round(width) : null,
     windowHeight: Number.isFinite(height) && height >= 480 ? Math.round(height) : null,

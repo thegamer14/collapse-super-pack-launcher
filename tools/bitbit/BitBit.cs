@@ -253,6 +253,9 @@ namespace BitBit
         long gameFrames;
         DateTime fpsWindow = DateTime.UtcNow;
         double gameFps;
+        long presentedFrames;
+        DateTime presentWindow = DateTime.UtcNow;
+        double presentFps;
         DateTime lastReport = DateTime.UtcNow;
         DateTime lastTopmost = DateTime.MinValue;
         static readonly string logFile = Environment.GetEnvironmentVariable("BITBIT_LOG");
@@ -534,8 +537,13 @@ namespace BitBit
             if (code >= 0 && shown && active)
             {
                 int message = wParam.ToInt32();
-                if (message == Native.WM_MOUSEMOVE || message == Native.WM_LBUTTONDOWN
-                    || message == Native.WM_LBUTTONUP || message == Native.WM_RBUTTONDOWN)
+                // Do not chase on every WM_MOUSEMOVE: a high-polling-rate mouse
+                // can queue thousands of these and each one moves a foreign
+                // window. The presentation thread already tracks the pointer
+                // once per composed frame; only clicks need an immediate chase
+                // so the click lands inside the game window.
+                if (message == Native.WM_LBUTTONDOWN || message == Native.WM_LBUTTONUP
+                    || message == Native.WM_RBUTTONDOWN)
                 {
                     TrackPointer();
                 }
@@ -755,7 +763,10 @@ namespace BitBit
 
             if (showFps)
             {
-                string fpsText = string.Format("FPS {0:0}", gameFps);
+                // Present rate is what the monitor receives. Game rate is how
+                // often the old engine itself changed a frame; keeping both
+                // visible avoids reporting a 60 Hz game update as the refresh.
+                string fpsText = string.Format("PRESENT {0:0}  GAME {1:0}", presentFps, gameFps);
                 SizeF size = e.Graphics.MeasureString(fpsText, labelFont);
                 e.Graphics.FillRectangle(fpsBackdrop,
                     ClientSize.Width - size.Width - 24, 12, size.Width + 12, size.Height + 4);
@@ -765,14 +776,23 @@ namespace BitBit
             paint.Stop();
             lastGrabMs = grab.Elapsed.TotalMilliseconds;
             frames++;
+            presentedFrames++;
+            DateTime presentNow = DateTime.UtcNow;
+            if ((presentNow - presentWindow).TotalSeconds >= 0.5)
+            {
+                double presentElapsed = (presentNow - presentWindow).TotalSeconds;
+                presentFps = presentElapsed > 0 ? presentedFrames / presentElapsed : 0;
+                presentedFrames = 0;
+                presentWindow = presentNow;
+            }
             frameMsTotal += paint.Elapsed.TotalMilliseconds;
             if (paint.Elapsed.TotalMilliseconds > worstFrameMs) worstFrameMs = paint.Elapsed.TotalMilliseconds;
 
             if ((DateTime.UtcNow - lastReport).TotalSeconds >= 2)
             {
                 lastReport = DateTime.UtcNow;
-                Log(string.Format("frames={0} mean={1:0.0}ms worst={2:0.0}ms capture={3:0.0}ms stretches={4} last={5:0.0}ms game=({6},{7}) fg={8} active={9}",
-                    frames, frameMsTotal / frames, worstFrameMs, lastGrabMs, stretchCount, stretchMsLast,
+                Log(string.Format("frames={0} present={1:0.0}fps game={2:0.0}fps mean={3:0.0}ms worst={4:0.0}ms capture={5:0.0}ms stretches={6} last={7:0.0}ms origin=({8},{9}) fg={10} active={11}",
+                    frames, presentFps, gameFps, frameMsTotal / frames, worstFrameMs, lastGrabMs, stretchCount, stretchMsLast,
                     gameOrigin.X, gameOrigin.Y, Native.GetForegroundWindow(), active));
             }
         }

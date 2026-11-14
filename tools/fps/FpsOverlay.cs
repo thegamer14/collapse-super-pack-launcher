@@ -40,6 +40,21 @@ namespace FpsOverlay
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+        [DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr dc, int index);
+        public const int VREFRESH = 116;
+
+        public static int RefreshRate()
+        {
+            IntPtr dc = GetDC(IntPtr.Zero);
+            try
+            {
+                int hz = GetDeviceCaps(dc, VREFRESH);
+                return hz <= 1 ? 60 : hz;
+            }
+            finally { ReleaseDC(IntPtr.Zero, dc); }
+        }
 
         public static IntPtr FindLargestWindow(int pid)
         {
@@ -91,6 +106,7 @@ namespace FpsOverlay
 
         readonly object sync = new object();
         int displayedFps;
+        int refreshHz;
         bool active;
         volatile bool stopping;
         Thread sampler;
@@ -109,13 +125,14 @@ namespace FpsOverlay
             BackColor = Color.Black;
             Opacity = 0.78;
             DoubleBuffered = true;
-            Width = 132;
+            Width = 190;
             Height = 42;
             Rectangle screen = Screen.PrimaryScreen.Bounds;
             Location = new Point(screen.Right - Width - 18, screen.Top + 18);
             Text = "FPS";
 
-            Log("overlay constructed");
+            refreshHz = Native.RefreshRate();
+            Log("overlay constructed at " + refreshHz + " Hz");
 
             bitmap = new Bitmap(256, 256, PixelFormat.Format32bppArgb);
             previous = new byte[256 * 256 * 4];
@@ -152,7 +169,12 @@ namespace FpsOverlay
         {
             base.OnPaint(e);
             string text;
-            lock (sync) text = active ? string.Format(CultureInfo.InvariantCulture, "FPS {0}", displayedFps) : "FPS --";
+            lock (sync)
+            {
+                text = active
+                    ? string.Format(CultureInfo.InvariantCulture, "GAME {0}  {1}Hz", displayedFps, refreshHz)
+                    : string.Format(CultureInfo.InvariantCulture, "GAME --  {0}Hz", refreshHz);
+            }
             using (Font font = new Font("Segoe UI Semibold", 11f))
             using (Brush brush = new SolidBrush(Color.White))
             using (StringFormat format = new StringFormat())
@@ -265,7 +287,7 @@ namespace FpsOverlay
                         changes = 0;
                         windowStart = now;
                         BeginInvoke(new MethodInvoker(Invalidate));
-                        Log(string.Format(CultureInfo.InvariantCulture, "fps={0} active={1}", next, foreground));
+                        Log(string.Format(CultureInfo.InvariantCulture, "gameFps={0} refresh={1}Hz active={2}", next, refreshHz, foreground));
                     }
 
                     if ((now - lastTopmost).TotalSeconds >= 2.0)

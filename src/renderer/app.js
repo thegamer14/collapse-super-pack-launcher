@@ -1317,7 +1317,9 @@ function openGameSettings(game) {
   const filterLabel = document.createElement('label');
   filterLabel.textContent = 'Scaling quality';
   const filterHint = document.createElement('small');
-  filterHint.textContent = 'Smooth uses HALFTONE. Sharp uses nearest-neighbour and is lighter on slower GPUs.';
+  filterHint.textContent = game.id === 'collapse'
+    ? 'Sharp is the default for 144 Hz Widescreen. Smooth uses HALFTONE and is softer, but heavier at 1080p.'
+    : 'Smooth uses HALFTONE. Sharp uses nearest-neighbour and is lighter on slower GPUs.';
   filterLabel.append(filterHint);
   const filterModes = document.createElement('div');
   filterModes.className = 'segments';
@@ -1452,7 +1454,7 @@ function openGameSettings(game) {
       : native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
     chosenSize = '';
     chosenScaling = game.id === 'collapse' ? 'fill' : 'fit';
-    chosenFilter = 'smooth';
+    chosenFilter = game.id === 'collapse' ? 'nearest' : 'smooth';
     musicFix = true;
     if (musicToggle) musicToggle.checked = true;
     const resetDisplay = game.id === 'collapse'
@@ -1461,7 +1463,7 @@ function openGameSettings(game) {
     for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === resetDisplay);
     for (const [key, el] of Object.entries(sizeButtons)) el.classList.toggle('on', key === '');
     for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === (game.id === 'collapse' ? 'fill' : 'fit'));
-    for (const [key, el] of Object.entries(filterButtons)) el.classList.toggle('on', key === 'smooth');
+    for (const [key, el] of Object.entries(filterButtons)) el.classList.toggle('on', key === (game.id === 'collapse' ? 'nearest' : 'smooth'));
   });
   cancel.addEventListener('click', close);
   save.addEventListener('click', async () => {
