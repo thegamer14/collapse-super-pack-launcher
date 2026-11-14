@@ -30,7 +30,19 @@ const PATCH = {
   caveOffsetWithinRdata: 0x9c300,
   patchedRdataVirtualSize: 0x9c400,
   caveMaxLength: 0x100,
-  caveDataLength: 0xbb,
+  caveDataLength: 0xf2,
+  // Continuous starts its board before the level-load music switch. Play the
+  // puzzle board drop-in sample at the top of both Continuous music blocks.
+  // The sample is declared in the always-loaded scenegamebase section.
+  dropInSoundSectionVa: 0x7495a0,
+  dropInSoundSectionLength: 0x0d,
+  dropInSoundSectionLengthVa: 0x44b8ba,
+  dropInSoundSectionNameVa: 0x44b8c3,
+  dropInSoundFunctionVa: 0x44b880,
+  doubleSectionNameVa: 0x7575b0,
+  singleHelperOffset: 0xbb,
+  doubleHelperOffset: 0xc8,
+  soundHelperOffset: 0xdc,
   executedSectionFlag: 0x20000000,
   // The game's music switch. Unlike a direct Sound::play call this stops the
   // previous track and registers the new one with the scene/music manager, so
@@ -96,10 +108,7 @@ function isPatchedExecutable(buffer) {
     const cave = rdata.rawOffset + PATCH.caveOffsetWithinRdata;
     if (jumpEntry + 4 > buffer.length || cave + 5 > buffer.length) return false;
     return buffer.readUInt32LE(jumpEntry) === PATCH.caveVa &&
-      buffer[cave] === 0x68 &&
-      buffer[cave + 1] === 0x74 &&
-      buffer[cave + 2] === 0x75 &&
-      buffer[cave + 3] === 0x75;
+      (buffer[cave] === 0x68 || buffer[cave] === 0xe8);
   } catch {
     return false;
   }
@@ -113,10 +122,83 @@ function isCurrentMusicPatch(buffer) {
     if (rdataHeader < 0) return false;
     const rdata = sectionDetails(buffer, rdataHeader);
     const cave = rdata.rawOffset + PATCH.caveOffsetWithinRdata;
-    return buffer[cave + 0x6c] === 0x90 && buffer[cave + 0x6d] === 0x90;
+    return buffer[cave] === 0x68 &&
+      buffer[cave + 1] === 0x74 &&
+      buffer[cave + 2] === 0x75 &&
+      buffer[cave + 3] === 0x75 &&
+      buffer[cave + 0x6c] === 0x90 &&
+      buffer[cave + 0x6d] === 0x90 &&
+      buffer[cave + 0x73] === 0x68 &&
+      buffer[cave + 0x82] === 0x90 &&
+      buffer[cave + 0x83] === 0x90 &&
+      buffer[cave + PATCH.singleHelperOffset] === 0xe8 &&
+      buffer[cave + PATCH.doubleHelperOffset] === 0x68 &&
+      buffer[cave + PATCH.soundHelperOffset] === 0x9c &&
+      buffer[cave + PATCH.soundHelperOffset + 0x15] === 0xc3;
   } catch {
     return false;
   }
+}
+
+function writeCall(buffer, offset, targetVa, nextVa) {
+  buffer[offset] = 0xe8;
+  buffer.writeInt32LE(targetVa - nextVa, offset + 1);
+}
+
+/* Two tiny call gates at the top of each Continuous music block. They push the
+   section name the original block's first instruction used to push, call the
+   board drop-in sample, then jump to the instruction after that push with the
+   section still on the stack. The block does not read eax, ecx or edx before
+   defining them; eax is the only caller register the gate changes. */
+function writeSfxHelpers(cave, caveVa) {
+  const single = PATCH.singleHelperOffset;
+  const double = PATCH.doubleHelperOffset;
+  const common = PATCH.soundHelperOffset;
+  const commonVa = caveVa + common;
+
+  // The copied single-Continuous block keeps its original leading push and
+  // calls this gate from its former exit jump. The gate only has to discard
+  // the call's return address and continue at the normal block end.
+  writeCall(cave, single, commonVa, caveVa + single + 5);
+  cave[single + 5] = 0x83; // add esp,4
+  cave[single + 6] = 0xc4;
+  cave[single + 7] = 0x04;
+  cave[single + 8] = 0xe9; // jmp PATCH.blockEndVa
+  cave.writeInt32LE(PATCH.blockEndVa - (caveVa + single + 13), single + 9);
+
+  // The original double-Continuous block is patched in place, so its gate has
+  // to push the section name that the replaced first instruction used to push,
+  // then return to the instruction after it.
+  cave[double] = 0x68;
+  cave.writeUInt32LE(PATCH.doubleSectionNameVa, double + 1);
+  writeCall(cave, double + 5, commonVa, caveVa + double + 10);
+  cave[double + 10] = 0x58; // pop eax (section name)
+  cave[double + 11] = 0x83; // add esp,4 (drop the return address)
+  cave[double + 12] = 0xc4;
+  cave[double + 13] = 0x04;
+  cave[double + 14] = 0x50; // push eax
+  cave[double + 15] = 0xe9; // jmp PATCH.blockVa+5
+  cave.writeInt32LE(PATCH.blockVa + 5 - (caveVa + double + 20), double + 16);
+
+  let offset = common;
+  cave[offset++] = 0x9c; // pushfd
+  cave[offset++] = 0x60; // pushad
+  cave[offset++] = 0x6a; // push 0
+  cave[offset++] = 0x00;
+  cave[offset++] = 0x8d; // lea ecx,[esp-0x24d]
+  cave[offset++] = 0x8c;
+  cave[offset++] = 0x24;
+  cave.writeInt32LE(-0x24d, offset);
+  offset += 4;
+  const callOffset = offset;
+  writeCall(cave, callOffset, PATCH.dropInSoundFunctionVa, caveVa + callOffset + 5);
+  offset += 5;
+  cave[offset++] = 0x83; // add esp,4
+  cave[offset++] = 0xc4;
+  cave[offset++] = 0x04;
+  cave[offset++] = 0x61; // popad
+  cave[offset++] = 0x9d; // popfd
+  cave[offset++] = 0xc3; // ret
 }
 
 function buildPatchedExecutable(original) {
@@ -135,6 +217,8 @@ function buildPatchedExecutable(original) {
   const blockOffset = text.rawOffset + (PATCH.blockVa - (PATCH.imageBase + text.va));
   const jumpEntryOffset = text.rawOffset + (PATCH.jumpEntryVa - (PATCH.imageBase + text.va));
   const caveOffset = rdata.rawOffset + PATCH.caveOffsetWithinRdata;
+  const dropInLengthOffset = text.rawOffset + (PATCH.dropInSoundSectionLengthVa - (PATCH.imageBase + text.va));
+  const dropInNameOffset = text.rawOffset + (PATCH.dropInSoundSectionNameVa - (PATCH.imageBase + text.va));
 
   if (blockOffset < 0 || jumpEntryOffset + 4 > original.length || caveOffset + PATCH.caveMaxLength > original.length) {
     throw new Error('The Collapse! executable layout does not match the supported build.');
@@ -145,11 +229,16 @@ function buildPatchedExecutable(original) {
   if (original.readUInt32LE(jumpEntryOffset) !== 0x4971bd) {
     throw new Error('The Continuous switch entry was not found where expected.');
   }
+  if (original[dropInLengthOffset] !== 0x0f || original.readUInt32LE(dropInNameOffset) !== 0x7453b0) {
+    throw new Error('The board drop-in sound code was not found where expected.');
+  }
 
   const patched = Buffer.from(original);
   const block = Buffer.from(original.subarray(blockOffset, blockOffset + (PATCH.blockEndVa - PATCH.blockVa)));
   if (block.length !== 0xb6) throw new Error('The copied music block has an unexpected size.');
 
+  // The copied block must use the single-Continuous section; the original
+  // block keeps the double-Continuous section and is patched in place below.
   block.writeUInt32LE(PATCH.singleSectionNameVa, 1);
   const delta = PATCH.caveVa - PATCH.blockVa;
   for (const callOffset of PATCH.callOffsets) {
@@ -164,15 +253,31 @@ function buildPatchedExecutable(original) {
   patchContinuousMusicSwitch(block, 0, PATCH.caveVa);
   patchContinuousMusicSwitch(patched, blockOffset, PATCH.blockVa);
 
-  const jump = Buffer.alloc(5);
-  jump[0] = 0xe9;
-  jump.writeInt32LE(PATCH.blockEndVa - (PATCH.caveVa + block.length + 5), 1);
-  const cave = Buffer.concat([block, jump]);
+  // The board drop-in resource is only declared for scenegamepuzzle. The
+  // always-loaded base section gets it too, and the puzzle drop-in routine is
+  // pointed at that section. The helpers below call the routine from both
+  // Continuous music blocks without needing a real GameBoard object.
+  patched[dropInLengthOffset] = PATCH.dropInSoundSectionLength;
+  patched.writeUInt32LE(PATCH.dropInSoundSectionVa, dropInNameOffset);
+
+  const cave = Buffer.alloc(PATCH.soundHelperOffset + 0x16);
+  block.copy(cave, 0);
+  writeSfxHelpers(cave, PATCH.caveVa);
+
+  // The copied block's old exit jump is now a call to the single-Continuous
+  // sound gate; it jumps to the normal block end when it is done.
+  writeCall(cave, block.length, PATCH.caveVa + PATCH.singleHelperOffset, PATCH.caveVa + PATCH.singleHelperOffset);
   if (cave.length > PATCH.caveMaxLength) throw new Error('The Continuous music patch is too large.');
 
   for (let i = 0; i < cave.length; i += 1) {
     if (patched[caveOffset + i] !== 0) throw new Error('The Collapse! code cave is not empty.');
   }
+
+  // Only the original double-Continuous block's first instruction is replaced;
+  // the gate restores the section-name push before continuing. Keeping the
+  // copied block's opening push intact also lets older launchers recognize the
+  // patch (they inspect those first bytes).
+  writeCall(patched, blockOffset, PATCH.caveVa + PATCH.doubleHelperOffset, PATCH.blockVa + 5);
 
   cave.copy(patched, caveOffset);
   patched.writeUInt32LE(PATCH.caveVa, jumpEntryOffset);
@@ -192,16 +297,22 @@ function patchContinuousMusicSwitch(buffer, start, blockVa) {
   buffer[start + 0x6c] = 0x90;
   buffer[start + 0x6d] = 0x90;
 
-  // push esi / push 0x132 / push 0 / push edi / mov ecx,eax / call manager /
-  // pop esi. Saving esi keeps the block's cleanup path intact across the
-  // manager's cdecl call.
+  // push 0x132 / push 0 / push edi / mov ecx,eax / call manager. The manager
+  // is __thiscall with three stack arguments (ret 0xc), so the old extra
+  // push esi was a fourth argument and corrupted the call. The final argument
+  // byte lands on the old pop esi, which must also disappear with the push.
   const call = Buffer.from([
-    0x56, 0x68, 0x32, 0x01, 0x00, 0x00, 0x6a, 0x00, 0x57,
-    0x8b, 0xc8, 0xe8, 0x00, 0x00, 0x00, 0x00, 0x5e,
+    0x68, 0x32, 0x01, 0x00, 0x00, 0x6a, 0x00, 0x57,
+    0x8b, 0xc8, 0xe8, 0x00, 0x00, 0x00, 0x00,
   ]);
-  const callVa = blockVa + 0x7e;
-  call.writeInt32LE(PATCH.musicManagerVa - (callVa + 5), 12);
+  const callVa = blockVa + 0x82;
+  call.writeInt32LE(PATCH.musicManagerVa - callVa, 11);
   for (let i = 0; i < call.length; i += 1) buffer[start + 0x73 + i] = call[i];
+  // The 15-byte sequence is three bytes shorter than the old 18-byte
+  // push esi/.../pop esi form. Drop the remaining old displacement bytes and
+  // pop esi before the block's mov eax,esi.
+  buffer[start + 0x82] = 0x90;
+  buffer[start + 0x83] = 0x90;
 }
 
 function hashFileBuffer(buffer) {
@@ -271,6 +382,24 @@ function restoreMusicResource(xmlPath) {
   return { ok: true, backup };
 }
 
+/* Continuous uses scenegamebase, which is loaded for every game scene, while
+   the board drop-in sample was only declared in scenegamepuzzle. Add the same
+   resource to the base section so the Continuous helper can play it. */
+function ensureContinuousDropInSound(xmlPath) {
+  const current = fs.readFileSync(xmlPath, 'utf8');
+  const opening = /(<Section\s+auto="true"\s+name="scenegamebase">\r?\n)/;
+  const section = current.match(/<Section\s+auto="true"\s+name="scenegamebase">[\s\S]*?<\/Section>/);
+  if (!opening.test(current) || !section) {
+    return { ok: false, error: 'The scenegamebase section was not found in resources.xml.' };
+  }
+  if (section[0].includes('id="SOUND_PUZZLE_DROP_IN"')) return { ok: true, added: false };
+
+  const line = '\t\t\t<Sound file="sound/SC4_Puzzle_Board_DropIn.ogg" id="SOUND_PUZZLE_DROP_IN" volume="1.0" />\r\n';
+  const next = current.replace(opening, `$1${line}`);
+  fs.writeFileSync(xmlPath, next);
+  return { ok: true, added: true };
+}
+
 function setMusicFix(gamePath, enabled) {
   try {
     const exePath = path.resolve(gamePath);
@@ -281,6 +410,10 @@ function setMusicFix(gamePath, enabled) {
     if (!exeResult.ok) return exeResult;
     const resourceResult = restoreMusicResource(xmlPath);
     if (!resourceResult.ok) return resourceResult;
+    if (enabled) {
+      const soundResult = ensureContinuousDropInSound(xmlPath);
+      if (!soundResult.ok) return soundResult;
+    }
 
     return {
       ok: true,
