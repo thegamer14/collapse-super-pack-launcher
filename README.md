@@ -91,10 +91,11 @@ There are two gears, and they save different things.
   resolution you pick; **Fullscreen** runs a mouse-sensitive game at its native
   mode; **Borderless** fills the screen without BitBit for scalable engines;
   **Window** leaves it in its own little window. Fixed-size games default to
-  Scaled. Collapse! (2009) defaults to Fullscreen using the game's own native
-  1024×768 4:3 mode. Its engine only renders a 1024-pixel-wide canvas, so a
-  1920×1080 window leaves the picture in the left strip; the launcher no longer
-  patches or resizes that window.
+  Scaled. Collapse! (2009) defaults to **Widescreen**, which uses BitBit to
+  stretch its fixed 1024×768 canvas across a 16:9 display without black side
+  bars. **Fullscreen 4:3** remains available for the game's own native mode.
+  Its engine only renders a 1024-pixel-wide canvas, so the launcher does not
+  resize or patch the window to 1920×1080.
 - **Resolution** — the size the game is presented at: the whole screen, or
   1920×1080, 1600×900, 1366×768, 1280×720, 1024×768.
 - **Shape** — **Fit 4:3** keeps the game's shape with black bars at the sides;
@@ -176,10 +177,10 @@ the tile through renames and relocations.
 Collapse! (2010) renders a fixed 1024×768 4:3 canvas. Its `widescreencontent`
 flag does not widen that canvas: setting the window to 1920×1080 leaves the
 game drawing in the left 1024 pixels. The launcher therefore restores the
-original `application.xml` before launch and uses the game's own fullscreen
-mode, which keeps the cursor mapping correct. A true 16:9 rendering would need
-a renderer modification; this launcher deliberately does not fake it by
-stretching or resizing the window.
+original `application.xml` before launch. **Widescreen** runs the game windowed
+and lets BitBit stretch that canvas to 16:9, with the real cursor mapped through
+the overlay; **Fullscreen 4:3** uses the game's own mode when the original
+aspect ratio is preferred.
 
 Every game here paints a fixed 640×480, 800×600 or 1024×768 surface and ignores
 larger window sizes, so no setting inside the game can make it bigger. **BitBit** (`tools/bitbit/BitBit.exe`) is the upscaler that fixes that: a

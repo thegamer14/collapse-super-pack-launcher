@@ -111,9 +111,10 @@ const NATIVE_SIZES = {
   'super-collapse-2': { width: 640, height: 480, scalable: false, mouseSafe: true },
   'spongebob-collapse': { width: 640, height: 480, scalable: false, mouseSafe: true },
   'super-collapse': { width: 800, height: 600, scalable: false },
-  // Collapse! (2009) renders a fixed 1024x768 engine canvas. Its own fullscreen
-  // mode is the only fullscreen path that keeps the mouse mapping correct; the
-  // launcher must not resize this window or patch it to 1920x1080.
+  // Collapse! (2009) renders a fixed 1024x768 engine canvas. Widescreen runs
+  // that canvas through BitBit and stretches it to 16:9; Fullscreen 4:3 keeps
+  // the game's own native fullscreen mode. The engine itself must not be
+  // resized or patched to 1920x1080.
   collapse: { width: 1024, height: 768, scalable: true, mouseSafe: true },
 };
 
@@ -250,22 +251,28 @@ function readLibrary() {
     const parsed = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'));
     if (Array.isArray(parsed.games)) {
       let changed = false;
-      // Collapse! (2009) must not be stretched borderless: its engine keeps the
-      // mouse mapping from its native 1024x768 mode. Migrate old borderless /
-      // scaled entries onto the native fullscreen compatibility path.
+      // Collapse! (2009) used to default to its own 4:3 fullscreen mode. The
+      // engine canvas is fixed at 1024x768, so that leaves black bars on a
+      // widescreen monitor. New installs use BitBit's 16:9 stretch; existing
+      // installs are migrated once, and Fullscreen 4:3 remains selectable.
       const collapse = parsed.games.find((game) => game.id === 'collapse');
       if (collapse && !collapse.settings) {
         collapse.settings = {
           args: '', cwd: null, admin: false,
-          display: 'native', scaling: 'fit', filter: 'smooth', musicFix: true,
+          display: 'widescreen', scaling: 'fill', filter: 'smooth', musicFix: true,
           windowWidth: null, windowHeight: null,
         };
         changed = true;
-      } else if (collapse && ['scaled', 'fullscreen', 'borderless'].includes(collapse.settings.display)) {
-        collapse.settings.display = 'native';
-        collapse.settings.scaling = 'fit';
-        collapse.settings.windowWidth = null;
-        collapse.settings.windowHeight = null;
+      }
+      if (collapse && collapse.settings && parsed.collapseWidescreenMigration !== 1) {
+        if (['native', 'scaled', 'fullscreen', 'borderless'].includes(collapse.settings.display)) {
+          collapse.settings.display = 'widescreen';
+          collapse.settings.scaling = 'fill';
+          collapse.settings.windowWidth = null;
+          collapse.settings.windowHeight = null;
+          changed = true;
+        }
+        parsed.collapseWidescreenMigration = 1;
         changed = true;
       }
       if (collapse && collapse.settings && collapse.settings.display === 'native') {
@@ -530,14 +537,15 @@ ipcMain.handle('game:update', (_event, { id, settings }) => {
   // 'fullscreen' was the old mode-switching path; it maps onto the scaler.
   // 'native' is the separate no-BitBit fullscreen compatibility path.
   const display = patch.display === 'native' ? 'native'
-    : patch.display === 'scaled' || patch.display === 'fullscreen' ? 'scaled'
-      : patch.display === 'borderless' ? 'borderless' : 'window';
+    : patch.display === 'widescreen' ? 'widescreen'
+      : patch.display === 'scaled' || patch.display === 'fullscreen' ? 'scaled'
+        : patch.display === 'borderless' ? 'borderless' : 'window';
   game.settings = {
     args: typeof patch.args === 'string' ? patch.args.slice(0, 400) : '',
     cwd: patch.cwd ? String(patch.cwd) : null,
     admin: Boolean(patch.admin),
     display,
-    scaling: patch.scaling === 'fill' ? 'fill' : 'fit',
+    scaling: display === 'widescreen' || patch.scaling === 'fill' ? 'fill' : 'fit',
     filter: patch.filter === 'nearest' ? 'nearest' : 'smooth',
     musicFix: patch.musicFix !== false,
     windowWidth: Number.isFinite(width) && width >= 640 ? Math.round(width) : null,
@@ -560,11 +568,15 @@ ipcMain.handle('game:launch', async (_event, id) => {
   // fixed-size engines need the wrapper; the 2010 Collapse! re-renders itself
   const needsWrapper = !game.native || !game.native.scalable;
   const chosen = settings.display === 'scaled' || settings.display === 'window' ||
-    settings.display === 'fullscreen' || settings.display === 'borderless' || settings.display === 'native';
+    settings.display === 'fullscreen' || settings.display === 'borderless' ||
+    settings.display === 'native' || settings.display === 'widescreen';
   // fixed-size engines default to the wrapper; everything else stays windowed
-  const displayDefault = game.native && game.native.mouseSafe ? 'native' : (needsWrapper ? 'scaled' : 'window');
+  const displayDefault = game.id === 'collapse'
+    ? 'widescreen'
+    : game.native && game.native.mouseSafe ? 'native' : (needsWrapper ? 'scaled' : 'window');
   let display = chosen ? settings.display : displayDefault;
-  if (game.id === 'collapse' && ['scaled', 'fullscreen', 'borderless'].includes(display)) display = 'native';
+  if (game.id === 'collapse' && display === 'widescreen') display = 'scaled';
+  if (game.id === 'collapse' && ['fullscreen', 'borderless'].includes(display)) display = 'native';
   const scaled = display === 'scaled' || display === 'fullscreen';
   let warning = null;
 
@@ -589,7 +601,7 @@ ipcMain.handle('game:launch', async (_event, id) => {
   }
 
   // Collapse! (2009/2010) starts the menu stream and never switches to the
-  // continuous track. The resource patch is backed up and reversible.
+  // continuous track. The executable patch is backed up and reversible.
   if (game.id === 'collapse') {
     const music = gamePatches.setMusicFix(game.path, settings.musicFix !== false);
     if (!music.ok) warning = music.error;
@@ -623,12 +635,11 @@ ipcMain.handle('game:launch', async (_event, id) => {
   }
 
   // Scaled is the whole point of BitBit, so it has to work for scalable games
-  // too: previously Collapse! 2010 was sent straight to launchExecutable and
-  // kept its little window (and the black bars) no matter what was selected.
-  // A requested window size also needs the display helper to apply it.
-  // Collapse! must start directly. Its fullscreen preference is set above;
-  // the display helper would resize the window and break its mouse mapping.
-  const wantsDisplay = game.id !== 'collapse' && (scaled || display === 'native' || display === 'borderless' || Boolean(settings.windowWidth && settings.windowHeight));
+  // too. Collapse!'s Widescreen mode is the one exception that uses BitBit:
+  // Fullscreen 4:3 and Window still start directly in the game's own window.
+  const wantsDisplay = game.id === 'collapse'
+    ? display === 'scaled'
+    : (scaled || display === 'native' || display === 'borderless' || Boolean(settings.windowWidth && settings.windowHeight));
   const launchOptions = { ...settings, fps: launcherSettings.fpsCounter !== false };
   const result = wantsDisplay && !settings.admin
     ? launchWithDisplay(game.path, { ...launchOptions, display, native: game.native })

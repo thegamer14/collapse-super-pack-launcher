@@ -147,11 +147,18 @@ function artFor(game) {
 function displayChip(game) {
   const s = game.settings || {};
   const needsWrapper = !game.native || !game.native.scalable;
-  const display = s.display === 'scaled' || s.display === 'window' || s.display === 'borderless' || s.display === 'native'
+  const display = s.display === 'scaled' || s.display === 'window' || s.display === 'borderless' || s.display === 'native' || s.display === 'widescreen'
     ? s.display
     : (needsWrapper ? 'scaled' : 'window');
 
   const chip = document.createElement('span');
+  if (display === 'widescreen') {
+    chip.className = 'mode';
+    chip.textContent = 'Widescreen';
+    chip.title = 'BitBit stretches the 4:3 game to fill a 16:9 screen';
+    return chip;
+  }
+
   if (display === 'native') {
     chip.className = 'mode';
     chip.textContent = 'Fullscreen';
@@ -1173,8 +1180,10 @@ function openGameSettings(game) {
   panel.append(cwdField);
 
   /* ---- display: our wrapper presents fixed-size engines at any resolution ---- */
-  let chosenDisplay = current.display === 'native'
-    ? 'native'
+  let chosenDisplay = current.display === 'widescreen'
+    ? 'widescreen'
+    : current.display === 'native'
+      ? 'native'
     : current.display === 'borderless'
       ? (game.native && game.native.mouseSafe ? 'native' : 'borderless')
       : current.display === 'fullscreen' || current.display === 'scaled'
@@ -1194,7 +1203,7 @@ function openGameSettings(game) {
   displayLabel.textContent = 'Display';
   const displayHint = document.createElement('small');
   displayHint.textContent = game.id === 'collapse'
-    ? 'Collapse! draws a fixed 1024 × 768 4:3 canvas. Fullscreen uses the game’s own fullscreen mode so its cursor mapping stays correct; Window leaves it in its own 1024 × 768 window.'
+    ? 'Collapse! draws a fixed 1024 × 768 4:3 canvas. Widescreen uses BitBit to stretch it across the whole 16:9 screen; Fullscreen 4:3 uses the game’s own mode with bars at the sides. Window leaves it in its own 1024 × 768 window.'
     : native && native.mouseSafe
       ? (native.scalable
         ? `This game draws at ${native.width} × ${native.height}. Fullscreen runs it at that native mode and keeps its mouse mapping. Window leaves it in its own window.`
@@ -1207,10 +1216,12 @@ function openGameSettings(game) {
   const modes = document.createElement('div');
   modes.className = 'segments';
   const modeButtons = {};
-  const displayChoices = native && native.mouseSafe
-    ? (native.scalable
-      ? [['native', 'Fullscreen'], ['window', 'Window']]
-      : [['scaled', 'Scaled'], ['native', 'Fullscreen'], ['window', 'Window']])
+  const displayChoices = game.id === 'collapse'
+    ? [['widescreen', 'Widescreen'], ['native', 'Fullscreen 4:3'], ['window', 'Window']]
+    : native && native.mouseSafe
+      ? (native.scalable
+        ? [['native', 'Fullscreen'], ['window', 'Window']]
+        : [['scaled', 'Scaled'], ['native', 'Fullscreen'], ['window', 'Window']])
     : native && native.scalable
       ? [['borderless', 'Borderless'], ['window', 'Window']]
       : [['scaled', 'Scaled'], ['window', 'Window']];
@@ -1222,6 +1233,10 @@ function openGameSettings(game) {
     button.addEventListener('click', () => {
       chosenDisplay = value;
       for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === value);
+      if (value === 'widescreen') {
+        chosenScaling = 'fill';
+        for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === 'fill');
+      }
     });
     modeButtons[value] = button;
     modes.append(button);
@@ -1269,7 +1284,9 @@ function openGameSettings(game) {
   const scalingLabel = document.createElement('label');
   scalingLabel.textContent = 'Shape';
   const scalingHint = document.createElement('small');
-  scalingHint.textContent = 'Fit keeps the game’s 4:3 picture with bars at the sides. Fill stretches it to widescreen.';
+  scalingHint.textContent = game.id === 'collapse'
+    ? 'Widescreen always stretches with Fill. Fullscreen 4:3 keeps the original shape; the other modes ignore this.'
+    : 'Fit keeps the game’s 4:3 picture with bars at the sides. Fill stretches it to widescreen.';
   scalingLabel.append(scalingHint);
 
   const scalingModes = document.createElement('div');
@@ -1324,7 +1341,7 @@ function openGameSettings(game) {
     settingsRow(
       panel,
       'Continuous mode music fix',
-      'Repoints the game’s MUSIC_GAME stream to the Continuous track. The original resources.xml is backed up beside it.',
+      "Patches the game’s missing Continuous-music switch so Quick Play uses its own track. The original executable and resources.xml are backed up beside it.",
       musicToggle
     );
   }
@@ -1427,16 +1444,20 @@ function openGameSettings(game) {
     argsInput.value = '';
     cwdInput.value = '';
     adminInput.checked = false;
-    chosenDisplay = native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
+    chosenDisplay = game.id === 'collapse'
+      ? 'widescreen'
+      : native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
     chosenSize = '';
-    chosenScaling = 'fit';
+    chosenScaling = game.id === 'collapse' ? 'fill' : 'fit';
     chosenFilter = 'smooth';
     musicFix = true;
     if (musicToggle) musicToggle.checked = true;
-    const resetDisplay = native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
+    const resetDisplay = game.id === 'collapse'
+      ? 'widescreen'
+      : native && native.mouseSafe ? 'native' : native && native.scalable ? 'borderless' : 'scaled';
     for (const [key, el] of Object.entries(modeButtons)) el.classList.toggle('on', key === resetDisplay);
     for (const [key, el] of Object.entries(sizeButtons)) el.classList.toggle('on', key === '');
-    for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === 'fit');
+    for (const [key, el] of Object.entries(scalingButtons)) el.classList.toggle('on', key === (game.id === 'collapse' ? 'fill' : 'fit'));
     for (const [key, el] of Object.entries(filterButtons)) el.classList.toggle('on', key === 'smooth');
   });
   cancel.addEventListener('click', close);

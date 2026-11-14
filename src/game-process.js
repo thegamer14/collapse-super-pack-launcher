@@ -328,9 +328,8 @@ function launchBorderless(exePath, options = {}) {
 
 /**
  * Native fullscreen: switch the desktop to the game's own mode and let the
- * display scale it. This avoids BitBit entirely, which is the reliable path
- * for the GameHouse engines when their cursor handling fights the sliding
- * window.
+ * display scale it. Collapse! still uses this for its explicit Fullscreen 4:3
+ * option; its Widescreen option goes through BitBit instead.
  */
 function launchFullscreen(exePath, options = {}) {
   const native = options.native || {};
